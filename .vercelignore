@@ -1,0 +1,8 @@
+.git/
+art-source/
+tests/
+scripts/
+test-results/
+playwright-report/
+/*.png
+*.log

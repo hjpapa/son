@@ -1,0 +1,24 @@
+{
+  "name": "corn-wukong-escape",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc && vite build",
+    "test": "playwright test",
+    "art:prepare": "node scripts/prepare-art.mjs",
+    "art:backgrounds": "node scripts/optimize-backgrounds.mjs",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@vitejs/plugin-basic-ssl": "^2.1.0",
+    "sharp": "^0.35.4",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  }
+}

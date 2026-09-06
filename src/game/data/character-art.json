@@ -1,0 +1,16 @@
+{
+  "travelers": [
+    "enemy-crow", "enemy-worm", "enemy-grasshopper", "enemy-bat", "enemy-stone", "enemy-horn",
+    "enemy-bubble", "enemy-crab", "enemy-seahorse", "enemy-cloud", "enemy-thunderbird", "enemy-heaven-spear",
+    "enemy-rock", "enemy-mountain-wind", "enemy-stone-monkey", "enemy-pig", "enemy-pumpkin", "enemy-bull",
+    "enemy-fish", "enemy-whirlpool", "enemy-frog", "enemy-sand", "enemy-tornado", "enemy-dust-wolf",
+    "enemy-tiger", "enemy-tree", "enemy-moth", "enemy-mud", "enemy-swamp", "enemy-mist-bug",
+    "enemy-pride", "enemy-fear", "enemy-haste", "companion-samjang", "companion-bajie", "companion-sandy"
+  ],
+  "legends": [
+    "boss-honse", "boss-gatekeeper", "boss-erlang",
+    "boss-bajie", "boss-sandy", "boss-yellowwind",
+    "boss-tiger", "boss-mud", "boss-shadow",
+    "npc-buddha", "npc-dragon", "npc-guanyin"
+  ]
+}
