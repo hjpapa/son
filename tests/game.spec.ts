@@ -372,3 +372,85 @@ test.describe('phone', () => {
     expect(await page.evaluate(() => (window as any).__GAME__.isPaused)).toBe(false);
   });
 });
+
+test('background music: every chapter has a song, bars line up, and levels stay gentle', async ({ page }) => {
+  await page.goto('/?stage=stage-01');
+  await page.waitForFunction(() => (window as any).__GAME__?.scene.getScene('StageScene')?.dialogue);
+  const report = await page.evaluate(async () => {
+    const { songs } = await import('/src/audio/songs.ts');
+    const { prepareSong, playStep } = await import('/src/audio/Music.ts');
+    const { MUSIC_VOLUME } = await import('/src/audio/engine.ts');
+    const { stages } = await import('/src/game/data/stages.ts');
+    const missing = stages.filter((stage: any) => !songs[stage.musicKey]).map((stage: any) => stage.id);
+    const results: Record<string, { peak: number; rms: number; bars: boolean }> = {};
+    for (const key of Object.keys(songs)) {
+      const song = prepareSong(songs[key]);
+      const rate = 22050;
+      const ctx = new OfflineAudioContext(1, rate * 10, rate);
+      const bus = ctx.createGain();
+      bus.gain.value = MUSIC_VOLUME;
+      bus.connect(ctx.destination);
+      for (let step = 0, time = 0.05; time < 9; step += 1, time += song.stepSeconds) playStep(ctx, bus, song, step, time, true);
+      const data = (await ctx.startRendering()).getChannelData(0);
+      let peak = 0;
+      let sum = 0;
+      for (const sample of data) {
+        peak = Math.max(peak, Math.abs(sample));
+        sum += sample * sample;
+      }
+      const bars = [...song.layers, ...song.battle].every((layer: any) => layer.events.length % 8 === 0);
+      results[key] = { peak: Math.round(peak * 1000) / 1000, rms: Math.round(Math.sqrt(sum / data.length) * 1000) / 1000, bars };
+    }
+    return { missing, results };
+  });
+  expect(report.missing).toEqual([]);
+  for (const [key, result] of Object.entries(report.results)) {
+    expect(result.bars, `${key} bar length`).toBe(true);
+    // Leaves headroom for sound effects on top, but is still clearly audible.
+    expect(result.peak, `${key} peak`).toBeLessThan(0.45);
+    expect(result.rms, `${key} loudness`).toBeGreaterThan(0.01);
+  }
+});
+
+test('music follows the story: chapter song, boss drums, quieter pause, clear screen, on/off', async ({ page }) => {
+  const music = () => page.evaluate(async () => (await import('/src/audio/Music.ts')).Music.state);
+  await openStage(page, 2);
+  await dismiss(page); // the key presses also count as the tap browsers need before playing audio
+  expect((await music()).key).toBe('stage-cave');
+  expect(await page.evaluate(async () => (await import('/src/audio/engine.ts')).getAudio()?.ctx.state)).toBe('running');
+  const before = (await music()).scheduledNotes;
+  await page.waitForTimeout(800);
+  expect((await music()).scheduledNotes).toBeGreaterThan(before);
+  expect((await music()).battle).toBe(false);
+
+  await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    s.storyBeatsSeen = new Set(['trail', 'encounter']);
+    s.player.invulnerable = true;
+    s.player.body.reset(s.boss.x - 300, 432);
+  });
+  await expect.poll(async () => (await music()).battle).toBe(true);
+
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => (window as any).__GAME__.scene.isActive('PauseScene'));
+  expect((await music()).ducked).toBe(true);
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await music()).ducked).toBe(false);
+
+  await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').completeStage());
+  await dismiss(page);
+  await page.waitForFunction(() => (window as any).__GAME__.scene.isActive('StageClearScene'));
+  expect(await music()).toMatchObject({ key: 'journey', battle: false });
+
+  const toggled = await page.evaluate(async () => {
+    const { Music } = await import('/src/audio/Music.ts');
+    const { Settings } = await import('/src/game/Settings.ts');
+    Settings.music = false;
+    Music.refresh();
+    const off = Music.state.key;
+    Settings.music = true;
+    Music.refresh();
+    return { off, on: Music.state.key };
+  });
+  expect(toggled).toEqual({ off: undefined, on: 'journey' });
+});

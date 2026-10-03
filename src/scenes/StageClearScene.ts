@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { Music } from '../audio/Music';
 import { getStage } from '../game/data/stages';
 import { StageManager } from '../game/StageManager';
 import { GAME_HEIGHT, GAME_WIDTH } from '../constants';
@@ -26,6 +27,7 @@ export class StageClearScene extends Phaser.Scene {
 
   create(): void {
     const stage = getStage(this.stageId);
+    Music.play('journey');
     const total = StageManager.getStageCount();
     const backgroundKey = `background-${stage.backgroundKey}`;
     if (this.textures.exists(backgroundKey)) {

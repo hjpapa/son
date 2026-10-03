@@ -1,29 +1,15 @@
 import { Settings } from '../game/Settings';
+import { getAudio } from './engine';
 
 // Small synthesized sound effects. No audio files to download, and the
 // pentatonic notes keep the East Asian storybook mood of the game.
 type Wave = OscillatorType;
 
-let context: AudioContext | undefined;
-let master: GainNode | undefined;
-
-function audio(): AudioContext | undefined {
-  if (!Settings.sound) return undefined;
-  if (!context) {
-    const AudioContextClass = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) return undefined;
-    context = new AudioContextClass();
-    master = context.createGain();
-    master.gain.value = 0.32;
-    master.connect(context.destination);
-  }
-  if (context.state === 'suspended') void context.resume();
-  return context;
-}
-
 function tone(frequency: number, duration: number, options: { wave?: Wave; delay?: number; to?: number; volume?: number } = {}): void {
-  const ctx = audio();
-  if (!ctx || !master) return;
+  if (!Settings.sound) return;
+  const audio = getAudio();
+  if (!audio) return;
+  const { ctx, sfx } = audio;
   const start = ctx.currentTime + (options.delay ?? 0);
   const oscillator = ctx.createOscillator();
   const gain = ctx.createGain();
@@ -33,24 +19,13 @@ function tone(frequency: number, duration: number, options: { wave?: Wave; delay
   gain.gain.setValueAtTime(0.0001, start);
   gain.gain.exponentialRampToValueAtTime(options.volume ?? 0.5, start + 0.012);
   gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
-  oscillator.connect(gain).connect(master);
+  oscillator.connect(gain).connect(sfx);
   oscillator.start(start);
   oscillator.stop(start + duration + 0.02);
 }
 
 function melody(notes: number[], step: number, wave: Wave = 'triangle', volume = 0.45): void {
   notes.forEach((note, index) => tone(note, step * 1.6, { wave, delay: index * step, volume }));
-}
-
-// Mobile browsers only allow audio after a tap; resume on the first one.
-export function unlockAudio(): void {
-  const resume = () => {
-    audio();
-    window.removeEventListener('pointerdown', resume);
-    window.removeEventListener('keydown', resume);
-  };
-  window.addEventListener('pointerdown', resume);
-  window.addEventListener('keydown', resume);
 }
 
 export const Sfx = {

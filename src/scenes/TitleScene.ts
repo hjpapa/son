@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { Music } from '../audio/Music';
 import { stages } from '../game/data/stages';
 import { Settings } from '../game/Settings';
 import { StageManager } from '../game/StageManager';
@@ -24,6 +25,7 @@ export class TitleScene extends Phaser.Scene {
     }
 
     this.confirmLayer = undefined;
+    Music.play('title');
     this.add.image(0, 0, 'background-cornfield').setOrigin(0).setDisplaySize(GAME_WIDTH, GAME_HEIGHT);
     this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x173d2b, 0.16).setOrigin(0);
     this.add.rectangle(0, GAME_HEIGHT - 132, GAME_WIDTH, 132, 0x244b32, 0.68).setOrigin(0);
@@ -75,6 +77,10 @@ export class TitleScene extends Phaser.Scene {
 
     this.createSettingToggle(84, 30, () => `효과음 ${Settings.sound ? '켜짐' : '꺼짐'}`, () => {
       Settings.sound = !Settings.sound;
+    });
+    this.createSettingToggle(GAME_WIDTH - 104, 30, () => `배경음악 ${Settings.music ? '켜짐' : '꺼짐'}`, () => {
+      Settings.music = !Settings.music;
+      Music.refresh();
     });
 
     // Enter continues a saved journey instead of silently erasing it.

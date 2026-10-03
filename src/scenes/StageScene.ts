@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { Music } from '../audio/Music';
 import { Sfx } from '../audio/Sfx';
 import { BossEnemy } from '../entities/BossEnemy';
 import { Enemy } from '../entities/Enemy';
@@ -177,7 +178,9 @@ export class StageScene extends Phaser.Scene {
     this.dialogue = new DialogueBox(this);
     this.game.events.on(Phaser.Core.Events.HIDDEN, this.pauseForBackground, this);
     this.game.events.on('request-pause', this.pauseForBackground, this);
+    Music.play(this.stage.musicKey);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      Music.setBattle(false);
       this.game.events.off(Phaser.Core.Events.HIDDEN, this.pauseForBackground, this);
       this.game.events.off('request-pause', this.pauseForBackground, this);
     });
@@ -747,6 +750,7 @@ export class StageScene extends Phaser.Scene {
     this.bossBar.clear();
     const show = Boolean(this.boss?.active) && Math.abs(this.boss!.x - this.player.x) < BOSS_BAR_RANGE;
     this.bossBarName?.setVisible(show);
+    Music.setBattle(show && !this.stageCleared);
     if (!show || !this.boss) {
       return;
     }

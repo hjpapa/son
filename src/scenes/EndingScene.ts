@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { Music } from '../audio/Music';
 import { Sfx } from '../audio/Sfx';
 import { StageManager } from '../game/StageManager';
 import { GAME_HEIGHT, GAME_WIDTH } from '../constants';
@@ -18,6 +19,7 @@ export class EndingScene extends Phaser.Scene {
     }
     this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0xfff4cf, 0.5).setOrigin(0);
     Sfx.clear();
+    Music.play('finale');
 
     this.add.text(GAME_WIDTH / 2, 50, '서유기 완결', { color: '#8a4c16', fontSize: '24px', fontStyle: 'bold' }).setOrigin(0.5);
     const title = this.add.text(GAME_WIDTH / 2, 100, '불경과 깨달음의 귀환', {

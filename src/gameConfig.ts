@@ -17,6 +17,8 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
   roundPixels: false,
   input: { activePointers: 4 },
   disableContextMenu: true,
+  // Sound effects and music use their own Web Audio engine (src/audio).
+  audio: { noAudio: true },
   banner: false,
   scale: {
     mode: Phaser.Scale.FIT,
