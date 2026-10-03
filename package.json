@@ -8,7 +8,7 @@
     "build": "tsc && vite build",
     "test": "playwright test",
     "art:prepare": "node scripts/prepare-art.mjs",
-    "art:backgrounds": "node scripts/optimize-backgrounds.mjs",
+    "art:optimize": "node scripts/optimize-assets.mjs",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {

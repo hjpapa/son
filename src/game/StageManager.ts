@@ -1,4 +1,5 @@
 import { firstStageId, getNextStageAfterCleared, getStage, stages } from './data/stages';
+import { safeStorage } from './storage';
 
 const storageKey = 'corn-wukong-last-cleared-stage';
 const staffUpgradeKey = 'corn-wukong-staff-upgraded';
@@ -20,13 +21,14 @@ export class StageManager {
   private static read(key: string): string | null {
     return this.isPreviewMode() && this.previewProgress.has(key)
       ? this.previewProgress.get(key)!
-      : window.localStorage.getItem(key);
+      : safeStorage.get(key);
   }
 
   private static write(key: string, value: string): void {
     if (this.isPreviewMode()) this.previewProgress.set(key, value);
-    else window.localStorage.setItem(key, value);
+    else safeStorage.set(key, value);
   }
+
   private static isPreviewMode(): boolean {
     return import.meta.env.DEV && new URLSearchParams(window.location.search).has('stage');
   }
@@ -44,7 +46,8 @@ export class StageManager {
   }
 
   static getLastClearedStageId(): string | null {
-    return this.read(storageKey);
+    const stageId = this.read(storageKey);
+    return stageId && stages.some((stage) => stage.id === stageId) ? stageId : null;
   }
 
   static markStageCleared(stageId: string): void {
@@ -59,11 +62,9 @@ export class StageManager {
 
   static resetProgress(): void {
     this.previewProgress.clear();
-    window.localStorage.removeItem(storageKey);
-    window.localStorage.removeItem(staffUpgradeKey);
-    window.localStorage.removeItem(companionsKey);
-    window.localStorage.removeItem(levelKey);
-    window.localStorage.removeItem(experienceKey);
+    for (const key of [storageKey, staffUpgradeKey, companionsKey, levelKey, experienceKey]) {
+      safeStorage.remove(key);
+    }
   }
 
   static hasProgress(): boolean {
@@ -172,6 +173,7 @@ export class StageManager {
 
   static getClearedChapter(): number {
     const lastCleared = this.getLastClearedStageId();
-    return lastCleared ? getStage(lastCleared).chapter : 0;
+    // A save from an older build may name a stage that no longer exists.
+    return lastCleared && stages.some((stage) => stage.id === lastCleared) ? getStage(lastCleared).chapter : 0;
   }
 }

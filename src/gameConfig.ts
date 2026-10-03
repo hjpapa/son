@@ -1,12 +1,11 @@
 import Phaser from 'phaser';
+import { GAME_HEIGHT, GAME_WIDTH } from './constants';
 import { EndingScene } from './scenes/EndingScene';
+import { PauseScene } from './scenes/PauseScene';
 import { PreloadScene } from './scenes/PreloadScene';
 import { StageClearScene } from './scenes/StageClearScene';
 import { StageScene } from './scenes/StageScene';
 import { TitleScene } from './scenes/TitleScene';
-
-export const GAME_WIDTH = 960;
-export const GAME_HEIGHT = 540;
 
 export const gameConfig: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -16,10 +15,14 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
   backgroundColor: '#8ed8ff',
   pixelArt: false,
   roundPixels: false,
-  input: { activePointers: 3 },
+  input: { activePointers: 4 },
+  disableContextMenu: true,
+  banner: false,
   scale: {
     mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+    // Full screen the page container, not a wrapper Phaser would create.
+    fullscreenTarget: 'game-container'
   },
   physics: {
     default: 'arcade',
@@ -28,5 +31,5 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
       debug: false
     }
   },
-  scene: [PreloadScene, TitleScene, StageScene, StageClearScene, EndingScene]
+  scene: [PreloadScene, TitleScene, StageScene, PauseScene, StageClearScene, EndingScene]
 };

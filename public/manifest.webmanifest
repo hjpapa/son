@@ -1,0 +1,19 @@
+{
+  "name": "옥수수손오공: 서유기 열두 장의 모험",
+  "short_name": "옥수수손오공",
+  "description": "옥수수에서 태어난 손오공이 친구들과 천축국으로 떠나는 어린이 서유기 모험 게임",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#1d140b",
+  "theme_color": "#1d140b",
+  "categories": ["games", "education", "kids"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

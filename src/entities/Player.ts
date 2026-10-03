@@ -1,5 +1,11 @@
 import Phaser from 'phaser';
+import { Sfx } from '../audio/Sfx';
 import type { PlayerInputState } from '../types/InputState';
+
+// Forgiving jumps for young players: a jump still works shortly after
+// running off a ledge, and a press just before landing is remembered.
+const COYOTE_MS = 110;
+const JUMP_BUFFER_MS = 150;
 
 export class Player extends Phaser.Physics.Arcade.Sprite {
   maxHealth: number;
@@ -18,6 +24,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private staffUpgraded = false;
   private staffGlow: Phaser.GameObjects.Graphics;
   private currentPose?: 'idle' | 'run' | 'attack' | 'crouch';
+  private lastGroundedAt = 0;
+  private jumpBufferedUntil = 0;
 
   constructor(scene: Phaser.Scene, x: number, y: number, maxHealth = 6) {
     super(scene, x, y, 'corn-wukong-clean-idle');
@@ -77,10 +85,13 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
   update(input: PlayerInputState): void {
     const body = this.body as Phaser.Physics.Arcade.Body;
+    const now = this.scene.time.now;
     const grounded = body.blocked.down || body.touching.down;
     const crouching = input.down && grounded && !this.attacking;
     const jumpPressed = input.jump && !this.previousJump;
     const attackPressed = input.attack && !this.previousAttack;
+    if (grounded && body.velocity.y >= 0) this.lastGroundedAt = now;
+    if (jumpPressed) this.jumpBufferedUntil = now + JUMP_BUFFER_MS;
 
     let velocityX = 0;
     if (input.left && !input.right) {
@@ -94,8 +105,11 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.crouching = crouching;
     body.setVelocityX(crouching ? 0 : this.attacking ? velocityX * 0.45 : velocityX);
 
-    if (jumpPressed && grounded && !crouching) {
+    if (now <= this.jumpBufferedUntil && now - this.lastGroundedAt <= COYOTE_MS && !crouching) {
       body.setVelocityY(-590);
+      this.jumpBufferedUntil = 0;
+      this.lastGroundedAt = -Infinity;
+      Sfx.jump();
     }
 
     if (attackPressed && !crouching) {
@@ -217,6 +231,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.currentHealth = Math.max(0, this.currentHealth - amount);
     this.invulnerable = true;
     this.setTint(0xff6b4a);
+    Sfx.hurt();
+    this.scene.cameras.main.shake(140, 0.006);
 
     const body = this.body as Phaser.Physics.Arcade.Body;
     body.setVelocityX(-this.facing * 220);
@@ -237,6 +253,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
     this.attacking = true;
     this.attackSerial += 1;
+    Sfx.swing();
     this.attackHitActive = false;
     this.setPose('attack');
     this.setAngle(0);

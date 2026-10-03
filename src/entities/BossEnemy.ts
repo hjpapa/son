@@ -64,7 +64,8 @@ export class BossEnemy extends Enemy {
     this.specialCooldown += delta;
     const body = this.body as Phaser.Physics.Arcade.Body;
     const enraged = this.hpRatio <= 0.5;
-    const specialDelay = enraged ? 3100 : 4300;
+    // Slow enough for young players to read the warning call and react.
+    const specialDelay = enraged ? 3500 : 4700;
 
     if (this.specialCooldown >= specialDelay) {
       this.launchSpecialAttack(player);
@@ -149,11 +150,12 @@ export class BossEnemy extends Enemy {
     orb.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
     orb.setAngularVelocity(280 * this.direction);
 
-    this.scene.physics.add.overlap(orb, player, () => {
+    const collider = this.scene.physics.add.overlap(orb, player, () => {
       if (!orb.active) return;
       orb.destroy();
       this.damagePlayer(player);
     });
+    orb.once(Phaser.GameObjects.Events.DESTROY, () => collider.destroy());
 
     this.scene.time.delayedCall(3200, () => orb.active && orb.destroy());
   }
@@ -164,11 +166,12 @@ export class BossEnemy extends Enemy {
       wave.setDepth(7).setTint(styleColors[this.attackStyle]).setScale(this.attackStyle === 'mud' ? 1.45 : 1.15);
       (wave.body as Phaser.Physics.Arcade.Body).allowGravity = false;
       wave.setVelocityX(speed * direction).setFlipX(direction < 0);
-      this.scene.physics.add.overlap(wave, player, () => {
+      const collider = this.scene.physics.add.overlap(wave, player, () => {
         if (!wave.active) return;
         wave.destroy();
         this.damagePlayer(player);
       });
+      wave.once(Phaser.GameObjects.Events.DESTROY, () => collider.destroy());
       this.scene.time.delayedCall(1700, () => wave.active && wave.destroy());
     });
   }
@@ -177,9 +180,14 @@ export class BossEnemy extends Enemy {
     const targetX = player.x;
     const marker = this.scene.add.rectangle(targetX, 424, 76, 10, 0xffef6b, 0.8).setDepth(60);
     this.scene.tweens.add({ targets: marker, alpha: 0.15, duration: 120, yoyo: true, repeat: 3 });
+    const warning = this.scene.add
+      .text(targetX, 392, '!', { color: '#fff266', fontSize: '30px', fontStyle: 'bold', stroke: '#45206f', strokeThickness: 5 })
+      .setOrigin(0.5)
+      .setDepth(61);
 
-    this.scene.time.delayedCall(820, () => {
+    this.scene.time.delayedCall(950, () => {
       marker.destroy();
+      warning.destroy();
       if (!this.active || this.scene.physics.world.isPaused) return;
       const bolt = this.scene.add.rectangle(targetX, 220, 30, 410, 0xfff18b, 0.82).setDepth(65);
       this.scene.tweens.add({ targets: bolt, alpha: 0, duration: 260, onComplete: () => bolt.destroy() });

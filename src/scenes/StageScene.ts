@@ -1,45 +1,78 @@
 import Phaser from 'phaser';
+import { Sfx } from '../audio/Sfx';
 import { BossEnemy } from '../entities/BossEnemy';
 import { Enemy } from '../entities/Enemy';
 import { EnemyFactory } from '../entities/EnemyFactory';
 import { Player } from '../entities/Player';
 import { getStage, type StageBackgroundKey, type StageData, type StageHazard } from '../game/data/stages';
+import { chapterStories } from '../game/data/story';
+import { josa } from '../game/korean';
 import { StageManager } from '../game/StageManager';
-import { GAME_HEIGHT, GAME_WIDTH } from '../gameConfig';
+import { GAME_HEIGHT, GAME_WIDTH } from '../constants';
 import type { PlayerInputState } from '../types/InputState';
 import { DialogueBox } from '../ui/DialogueBox';
 import { MobileControls } from '../ui/MobileControls';
-import { chapterStories } from '../game/data/story';
+import { companionTextures } from '../game/data/companions';
+
+// Progress kept when a chapter restarts after the last talisman is used, so
+// a young player continues near where they fell instead of from the start.
+export type RetryState = {
+  checkpointX: number;
+  seenBeats: string[];
+  collectedCoins: number[];
+};
 
 type StageSceneInit = {
   stageId?: string;
+  retry?: RetryState;
 };
 
 type BackgroundPalette = {
-  sky: number;
-  far: number;
   near: number;
   ground: number;
   soil: number;
 };
 
 const palettes: Record<StageBackgroundKey, BackgroundPalette> = {
-  cornfield: { sky: 0xffd44f, far: 0x85b957, near: 0x5b9148, ground: 0x78b85a, soil: 0x8a5a2b },
-  cave: { sky: 0x2a2a34, far: 0x4c4c58, near: 0x35353f, ground: 0x55505a, soil: 0x29252c },
-  palace: { sky: 0x55c7ff, far: 0x3f91d6, near: 0x2f6db3, ground: 0x68d7d8, soil: 0x245c9b },
-  skywar: { sky: 0x92ddff, far: 0xffffff, near: 0xb7edff, ground: 0xa4d9ef, soil: 0x5fa2d8 },
-  mountain: { sky: 0x8ed8ff, far: 0x7c674b, near: 0x5d4b39, ground: 0x85c66a, soil: 0x8a5a2b },
-  farm: { sky: 0xffcc70, far: 0xdeb35f, near: 0xb6783d, ground: 0x81bd55, soil: 0x80512a },
-  river: { sky: 0x76cfff, far: 0x3f9cdb, near: 0x2474b8, ground: 0x68b975, soil: 0x2c74a0 },
-  wind: { sky: 0xf1d58a, far: 0xd8b763, near: 0xbe9145, ground: 0xd8c06a, soil: 0x9b7233 },
-  forest: { sky: 0x86d6a3, far: 0x347f4d, near: 0x1f5b37, ground: 0x5fa857, soil: 0x5b3e26 },
-  swamp: { sky: 0x536f55, far: 0x314a37, near: 0x253626, ground: 0x4d7040, soil: 0x263522 },
-  gold: { sky: 0xffdf70, far: 0xd5a339, near: 0xb97b24, ground: 0xdfbd56, soil: 0x8a5a2b },
-  ending: { sky: 0xfff1a8, far: 0xf2d377, near: 0xcaa24a, ground: 0x97c972, soil: 0x8a5a2b }
+  cornfield: { near: 0x5b9148, ground: 0x78b85a, soil: 0x8a5a2b },
+  cave: { near: 0x35353f, ground: 0x55505a, soil: 0x29252c },
+  palace: { near: 0x2f6db3, ground: 0x68d7d8, soil: 0x245c9b },
+  skywar: { near: 0xb7edff, ground: 0xa4d9ef, soil: 0x5fa2d8 },
+  mountain: { near: 0x5d4b39, ground: 0x85c66a, soil: 0x8a5a2b },
+  farm: { near: 0xb6783d, ground: 0x81bd55, soil: 0x80512a },
+  river: { near: 0x2474b8, ground: 0x68b975, soil: 0x2c74a0 },
+  wind: { near: 0xbe9145, ground: 0xd8c06a, soil: 0x9b7233 },
+  forest: { near: 0x1f5b37, ground: 0x5fa857, soil: 0x5b3e26 },
+  swamp: { near: 0x253626, ground: 0x4d7040, soil: 0x263522 },
+  gold: { near: 0xb97b24, ground: 0xdfbd56, soil: 0x8a5a2b },
+  ending: { near: 0xcaa24a, ground: 0x97c972, soil: 0x8a5a2b }
 };
+
+const coinPositions = [
+  { x: 430, y: 350 },
+  { x: 550, y: 350 },
+  { x: 680, y: 350 },
+  { x: 1130, y: 290 },
+  { x: 1240, y: 290 },
+  { x: 1740, y: 350 },
+  { x: 1870, y: 350 }
+];
+
+const REQUIRED_COINS = 5;
+const TALISMANS_PER_TRY = 2;
+const BOSS_BAR_RANGE = 760;
+
+const hudText = (size: number, color = '#fff8d6'): Phaser.Types.GameObjects.Text.TextStyle => ({
+  color,
+  fontSize: `${size}px`,
+  fontStyle: 'bold',
+  stroke: '#2a1a08',
+  strokeThickness: 5
+});
 
 export class StageScene extends Phaser.Scene {
   private stage!: StageData;
+  private retry?: RetryState;
   private player!: Player;
   private platforms!: Phaser.Physics.Arcade.StaticGroup;
   private coins!: Phaser.Physics.Arcade.StaticGroup;
@@ -49,26 +82,21 @@ export class StageScene extends Phaser.Scene {
   private staffItem?: Phaser.Physics.Arcade.Sprite;
   private staffHint?: Phaser.GameObjects.Text;
   private npcSprite?: Phaser.Physics.Arcade.Sprite;
-  private npcNameText?: Phaser.GameObjects.Text;
   private companionSprites: Phaser.GameObjects.Sprite[] = [];
-  private objectiveText?: Phaser.GameObjects.Text;
-  private companionsText?: Phaser.GameObjects.Text;
   private hazardZones: Array<{ data: StageHazard; zone: Phaser.GameObjects.Zone }> = [];
   private npcMet = false;
   private rewardCollected = false;
   private hazardHitReadyAt = 0;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private keys!: Record<'A' | 'D' | 'SPACE', Phaser.Input.Keyboard.Key>;
+  private keys!: Record<'A' | 'D' | 'W' | 'S' | 'SPACE', Phaser.Input.Keyboard.Key>;
   private mobileControls!: MobileControls;
   private dialogue!: DialogueBox;
-  private healthText!: Phaser.GameObjects.Text;
-  private healthBar!: Phaser.GameObjects.Graphics;
+  private hud!: Phaser.GameObjects.Graphics;
+  private talismanText!: Phaser.GameObjects.Text;
   private coinText!: Phaser.GameObjects.Text;
-  private titleText!: Phaser.GameObjects.Text;
   private levelText!: Phaser.GameObjects.Text;
-  private experienceBar!: Phaser.GameObjects.Graphics;
   private bossBar?: Phaser.GameObjects.Graphics;
-  private bossNameText?: Phaser.GameObjects.Text;
+  private bossBarName?: Phaser.GameObjects.Text;
   private exitGate?: Phaser.GameObjects.Rectangle;
   private exitHint?: Phaser.GameObjects.Text;
   private bossExitUnlocked = false;
@@ -76,13 +104,15 @@ export class StageScene extends Phaser.Scene {
   private surviveRemainingMs = 0;
   private surviveTimerText?: Phaser.GameObjects.Text;
   private coinCount = 0;
+  private collectedCoins = new Set<number>();
   private stageCleared = false;
   private inputLocked = true;
   private hitThisSwing = new Set<Enemy>();
   private lastAttackId = -1;
   private storyBeatsSeen = new Set<string>();
+  private checkpointX = 0;
   private windTimer = 0;
-  private revivesRemaining = 1;
+  private revivesRemaining = TALISMANS_PER_TRY;
 
   constructor() {
     super('StageScene');
@@ -90,22 +120,22 @@ export class StageScene extends Phaser.Scene {
 
   init(data: StageSceneInit): void {
     this.stage = getStage(data.stageId ?? StageManager.getFirstStageId());
+    this.retry = data.retry;
     this.boss = undefined;
     this.staffItem = undefined;
     this.staffHint = undefined;
     this.npcSprite = undefined;
-    this.npcNameText = undefined;
     this.companionSprites = [];
-    this.objectiveText = undefined;
-    this.companionsText = undefined;
     this.hazardZones = [];
     this.npcMet = false;
     this.rewardCollected = false;
     this.hazardHitReadyAt = 0;
-    this.bossNameText = undefined;
+    this.bossBar = undefined;
+    this.bossBarName = undefined;
     this.exitGate = undefined;
     this.exitHint = undefined;
-    this.coinCount = 0;
+    this.collectedCoins = new Set(this.retry?.collectedCoins ?? []);
+    this.coinCount = this.collectedCoins.size;
     this.stageCleared = false;
     this.inputLocked = true;
     this.bossExitUnlocked = false;
@@ -113,9 +143,10 @@ export class StageScene extends Phaser.Scene {
     this.surviveRemainingMs = 0;
     this.surviveTimerText = undefined;
     this.lastAttackId = -1;
-    this.storyBeatsSeen.clear();
+    this.storyBeatsSeen = new Set(this.retry?.seenBeats ?? []);
+    this.checkpointX = this.retry?.checkpointX ?? this.stage.playerStart.x;
     this.windTimer = 0;
-    this.revivesRemaining = 1;
+    this.revivesRemaining = TALISMANS_PER_TRY;
     this.hitThisSwing.clear();
   }
 
@@ -131,10 +162,10 @@ export class StageScene extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, worldWidth, GAME_HEIGHT);
     this.cameras.main.setBounds(0, 0, worldWidth, GAME_HEIGHT);
 
-    this.createGeneratedTextures();
     this.createBackground(worldWidth);
     this.createPlatforms(worldWidth);
     this.createCoins();
+    this.createCameos();
     this.createActors();
     this.createNpc();
     this.createHealthItems();
@@ -144,8 +175,26 @@ export class StageScene extends Phaser.Scene {
     this.createUi();
 
     this.dialogue = new DialogueBox(this);
-    this.dialogue.show(this.stage.startDialogue, () => {
-      this.inputLocked = false;
+    this.game.events.on(Phaser.Core.Events.HIDDEN, this.pauseForBackground, this);
+    this.game.events.on('request-pause', this.pauseForBackground, this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.game.events.off(Phaser.Core.Events.HIDDEN, this.pauseForBackground, this);
+      this.game.events.off('request-pause', this.pauseForBackground, this);
+    });
+
+    if (this.retry) {
+      this.cameras.main.fadeIn(350, 255, 248, 214);
+      this.showFloatingMessage('다시 도전! 구름 부적이 다시 생겼어요', 1800);
+      this.time.delayedCall(500, () => {
+        this.inputLocked = false;
+      });
+      return;
+    }
+
+    this.playChapterIntro(() => {
+      this.dialogue.show(this.stage.startDialogue, () => {
+        this.inputLocked = false;
+      });
     });
   }
 
@@ -172,21 +221,80 @@ export class StageScene extends Phaser.Scene {
     this.checkAttackHits();
     this.updateSurviveStage(delta);
     this.updateBossBar();
-    this.updateBossNameText();
+  }
+
+  // A storybook title page with a soft gong opens every chapter.
+  private playChapterIntro(onDone: () => void): void {
+    this.physics.world.pause();
+    const card = this.add.container(0, 0).setScrollFactor(0).setDepth(2500).setAlpha(0);
+    const shade = this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x1d140b, 0.78).setOrigin(0);
+    const band = this.add.graphics();
+    band.fillStyle(0xf6e2a8, 0.97).fillRect(0, 150, GAME_WIDTH, 232);
+    band.fillStyle(0xb5462f, 1).fillRect(0, 142, GAME_WIDTH, 10).fillRect(0, 380, GAME_WIDTH, 10);
+    const chapter = this.add.text(GAME_WIDTH / 2, 196, `제 ${this.stage.chapter}장`, { color: '#a13a22', fontSize: '30px', fontStyle: 'bold' }).setOrigin(0.5);
+    const title = this.add.text(GAME_WIDTH / 2, 258, this.stage.title, { color: '#3b2100', fontSize: '52px', fontStyle: 'bold' }).setOrigin(0.5);
+    const subtitle = this.add.text(GAME_WIDTH / 2, 324, this.stage.subtitle, { color: '#6c4515', fontSize: '24px', fontStyle: 'bold' }).setOrigin(0.5);
+    card.add([shade, band, chapter, title, subtitle]);
+    Sfx.gong();
+
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      this.input.off('pointerdown', finish);
+      this.input.keyboard?.off('keydown-ENTER', finish);
+      this.input.keyboard?.off('keydown-SPACE', finish);
+      this.tweens.add({
+        targets: card,
+        alpha: 0,
+        duration: 300,
+        onComplete: () => {
+          card.destroy();
+          this.physics.world.resume();
+          onDone();
+        }
+      });
+    };
+    this.tweens.add({ targets: card, alpha: 1, duration: 350 });
+    this.tweens.add({ targets: title, scale: { from: 0.9, to: 1 }, duration: 600, ease: 'Back.easeOut' });
+    // Wait a moment before a tap can skip, so the title is actually seen.
+    this.time.delayedCall(600, () => {
+      if (finished) return;
+      this.input.on('pointerdown', finish);
+      this.input.keyboard?.on('keydown-ENTER', finish);
+      this.input.keyboard?.on('keydown-SPACE', finish);
+    });
+    this.time.delayedCall(2600, finish);
   }
 
   private updateStoryBeats(): void {
     if (this.stageCleared) return;
     const story = chapterStories[this.stage.id];
+    const encounterX = (this.stage.boss?.x ?? Infinity) - 400;
     const beats = [
-      { id: 'trail', x: this.stage.worldWidth * 0.4, lines: story.trail },
-      { id: 'encounter', x: (this.stage.boss?.x ?? Infinity) - 400, lines: story.encounter }
+      { id: 'trail', x: this.stage.worldWidth * 0.4, lines: story.trail, checkpoint: this.stage.worldWidth * 0.4 },
+      { id: 'encounter', x: encounterX, lines: story.encounter, checkpoint: encounterX - 120 }
     ];
     for (const beat of beats) {
       if (this.player.x < beat.x || this.storyBeatsSeen.has(beat.id) || !beat.lines.length) continue;
       this.storyBeatsSeen.add(beat.id);
+      this.checkpointX = Math.max(this.checkpointX, beat.checkpoint);
       this.dialogue.show(beat.lines);
       return;
+    }
+  }
+
+  private createCameos(): void {
+    for (const cameo of this.stage.cameos ?? []) {
+      const sprite = this.add.image(cameo.x, cameo.y, cameo.spriteKey).setOrigin(0.5, 1).setDepth(3).setFlipX(true);
+      sprite.setScale(118 / sprite.height);
+      const label = this.add.text(cameo.x, cameo.y - 128, cameo.name, hudText(17, '#fff6bd')).setOrigin(0.5, 1).setDepth(3);
+      const targets: Phaser.GameObjects.GameObject[] = [sprite, label];
+      if (cameo.floating) {
+        const cloud = this.add.ellipse(cameo.x, cameo.y - 6, 150, 34, 0xffffff, 0.9).setStrokeStyle(3, 0xd7e6f2).setDepth(2.9);
+        targets.push(cloud);
+      }
+      this.tweens.add({ targets, y: `-=${cameo.floating ? 10 : 4}`, duration: cameo.floating ? 1500 : 900, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
     }
   }
 
@@ -201,20 +309,10 @@ export class StageScene extends Phaser.Scene {
       this.boss.onDefeated(() => this.handleBossDefeated());
       this.boss.onPlayerDamaged(() => this.handlePlayerDamaged());
       this.enemies.add(this.boss);
-      this.bossNameText = this.add
-        .text(this.boss.x, this.boss.y - 128, this.stage.boss.name, {
-          color: '#fff1a3',
-          fontSize: '20px',
-          fontStyle: 'bold',
-          stroke: '#321400',
-          strokeThickness: 4
-        })
-        .setOrigin(0.5)
-        .setDepth(70);
     }
 
     const nearGoal = import.meta.env.DEV && new URLSearchParams(window.location.search).get('nearGoal') === '1';
-    const playerStartX = nearGoal ? Math.max(120, this.stage.goalX - 520) : this.stage.playerStart.x;
+    const playerStartX = nearGoal ? Math.max(120, this.stage.goalX - 520) : this.checkpointX;
     this.player = new Player(this, playerStartX, this.stage.playerStart.y, StageManager.getMaxHealth());
     this.player.healFull();
     this.player.setAttackRangeMultiplier(StageManager.getAttackRangeMultiplier());
@@ -228,7 +326,7 @@ export class StageScene extends Phaser.Scene {
       this.handlePlayerEnemyCollision(enemyObject as Enemy);
     });
     this.physics.add.overlap(this.player, this.coins, (_playerObject, coinObject) => {
-      this.collectCoin(coinObject as Phaser.GameObjects.GameObject);
+      this.collectCoin(coinObject as Phaser.Physics.Arcade.Sprite);
     });
 
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
@@ -236,14 +334,8 @@ export class StageScene extends Phaser.Scene {
   }
 
   private createCompanionFollowers(): void {
-    const textureKeys: Record<string, string> = {
-      '삼장법사': 'companion-samjang',
-      '저팔계': 'companion-bajie',
-      '사오정': 'companion-sandy'
-    };
-
     this.companionSprites = StageManager.getCompanions().map((name, index) => {
-      return this.add.sprite(this.player.x - 58 * (index + 1), this.player.y, textureKeys[name]).setOrigin(0.5, 1).setDepth(4).setDisplaySize(78, 78);
+      return this.add.sprite(this.player.x - 58 * (index + 1), this.player.y, companionTextures[name]).setOrigin(0.5, 1).setDepth(4).setDisplaySize(78, 78);
     });
   }
 
@@ -270,15 +362,8 @@ export class StageScene extends Phaser.Scene {
 
     this.npcSprite = this.physics.add.staticSprite(npc.x, npc.y, npc.spriteKey).setOrigin(0.5, 1).setDisplaySize(128, 128).setDepth(8);
     this.npcSprite.refreshBody();
-    this.npcNameText = this.add
-      .text(npc.x, npc.y - 138, `${npc.name}\n${npc.role}`, {
-        align: 'center',
-        color: '#fff6bd',
-        fontSize: '18px',
-        fontStyle: 'bold',
-        stroke: '#321e08',
-        strokeThickness: 4
-      })
+    const nameText = this.add
+      .text(npc.x, npc.y - 138, `${npc.name}\n${npc.role}`, { ...hudText(18, '#fff6bd'), align: 'center' })
       .setOrigin(0.5, 1)
       .setDepth(9);
 
@@ -287,7 +372,7 @@ export class StageScene extends Phaser.Scene {
     this.physics.add.overlap(this.player, meetingZone, () => this.handleNpcReached());
 
     this.tweens.add({
-      targets: [this.npcSprite, this.npcNameText],
+      targets: [this.npcSprite, nameText],
       y: '-=5',
       duration: 1100,
       yoyo: true,
@@ -350,6 +435,9 @@ export class StageScene extends Phaser.Scene {
         }
       }
 
+      // Name every danger so children learn what to jump over.
+      this.add.text(hazard.x, hazard.y - (hazard.type === 'wind' ? 150 : 62), hazard.label, hudText(16, '#ffe9a8')).setOrigin(0.5).setDepth(5).setAlpha(0.9);
+
       if (hazard.type !== 'mud' && hazard.type !== 'wind') {
         this.physics.add.overlap(this.player, zone, () => this.handleHazardHit(hazard));
       }
@@ -366,14 +454,16 @@ export class StageScene extends Phaser.Scene {
       const body = this.player.body as Phaser.Physics.Arcade.Body;
       body.setVelocityY(-310);
       body.setVelocityX(this.player.x < hazard.x ? -190 : 190);
-      this.showFloatingMessage(hazard.label, 900);
+      this.showFloatingMessage(`앗, ${hazard.label}! 점프로 넘어가요`, 1200);
       this.handlePlayerDamaged();
     }
   }
 
   private createInput(): void {
     this.cursors = this.input.keyboard!.createCursorKeys();
-    this.keys = this.input.keyboard!.addKeys('A,D,SPACE') as Record<'A' | 'D' | 'SPACE', Phaser.Input.Keyboard.Key>;
+    this.keys = this.input.keyboard!.addKeys('A,D,W,S,SPACE') as Record<'A' | 'D' | 'W' | 'S' | 'SPACE', Phaser.Input.Keyboard.Key>;
+    this.input.keyboard!.on('keydown-ESC', this.openPause, this);
+    this.input.keyboard!.on('keydown-P', this.openPause, this);
     this.mobileControls = new MobileControls(this);
   }
 
@@ -382,14 +472,28 @@ export class StageScene extends Phaser.Scene {
     return {
       left: this.cursors.left.isDown || this.keys.A.isDown || touch.left,
       right: this.cursors.right.isDown || this.keys.D.isDown || touch.right,
-      down: this.cursors.down.isDown || touch.down,
-      jump: this.cursors.up.isDown || touch.jump,
+      down: this.cursors.down.isDown || this.keys.S.isDown || touch.down,
+      jump: this.cursors.up.isDown || this.keys.W.isDown || touch.jump,
       attack: this.cursors.space.isDown || this.keys.SPACE.isDown || touch.attack
     };
   }
 
   private emptyInput(): PlayerInputState {
     return { left: false, right: false, down: false, jump: false, attack: false };
+  }
+
+  private openPause(): void {
+    if (this.stageCleared || this.inputLocked || this.dialogue.isOpen || !this.scene.isActive()) return;
+    Sfx.tap();
+    this.mobileControls.reset();
+    this.scene.launch('PauseScene', { stageId: this.stage.id });
+    this.scene.pause();
+  }
+
+  // When the tablet sleeps, the child switches apps, or the device is turned
+  // upright, wait on the pause menu instead of playing on unseen.
+  private pauseForBackground(): void {
+    if (this.scene.isActive()) this.openPause();
   }
 
   private createBackground(worldWidth: number): void {
@@ -425,19 +529,12 @@ export class StageScene extends Phaser.Scene {
 
   private createCoins(): void {
     this.coins = this.physics.add.staticGroup();
-    const positions = [
-      { x: 430, y: 350 },
-      { x: 550, y: 350 },
-      { x: 680, y: 350 },
-      { x: 1130, y: 290 },
-      { x: 1240, y: 290 },
-      { x: 1740, y: 350 },
-      { x: 1870, y: 350 }
-    ];
-
-    positions.forEach(({ x, y }) => {
+    coinPositions.forEach(({ x, y }, index) => {
+      if (this.collectedCoins.has(index)) return;
       const coin = this.coins.create(x, y, 'corn-coin') as Phaser.Physics.Arcade.Sprite;
+      coin.setData('index', index);
       coin.refreshBody();
+      this.tweens.add({ targets: coin, scaleX: 0.55, duration: 520, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
     });
   }
 
@@ -490,13 +587,7 @@ export class StageScene extends Phaser.Scene {
         .setDepth(3);
       this.staffItem = this.physics.add.staticSprite(itemX, itemY, itemKey).setDepth(8);
       this.staffHint = this.add
-        .text(itemX, itemY - 74, needsUnlock ? `봉인된 ${reward?.label ?? '보물'}` : reward?.label ?? '보물', {
-          color: '#fff1a3',
-          fontSize: '20px',
-          fontStyle: 'bold',
-          stroke: '#3b2100',
-          strokeThickness: 4
-        })
+        .text(itemX, itemY - 74, needsUnlock ? `봉인된 ${reward?.label ?? '보물'}` : reward?.label ?? '보물', hudText(20, '#fff1a3'))
         .setOrigin(0.5)
         .setDepth(9);
 
@@ -531,104 +622,63 @@ export class StageScene extends Phaser.Scene {
       return;
     }
 
-    this.exitGate = this.add.rectangle(this.stage.goalX, 340, 36, 184, 0xe7bd42).setStrokeStyle(4, 0x6e4300).setDepth(2);
+    const locked = this.stage.clearMode === 'boss';
+    this.exitGate = this.add.rectangle(this.stage.goalX, 340, 36, 184, locked ? 0x9d8a68 : 0xe7bd42).setStrokeStyle(4, 0x6e4300).setDepth(2);
     this.exitHint = this.add
-      .text(this.stage.goalX, 228, this.stage.goalLabel, {
-        color: '#4f2e00',
-        fontSize: '22px',
-        fontStyle: 'bold'
-      })
+      .text(this.stage.goalX, 222, locked ? `${this.stage.goalLabel} (잠김)` : this.stage.goalLabel, hudText(22, '#fff1a3'))
       .setOrigin(0.5);
+    this.tweens.add({ targets: this.exitHint, y: '-=6', duration: 800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
 
-    if (this.stage.clearMode === 'goal' || this.stage.clearMode === 'boss' || this.stage.clearMode === 'survive') {
-      const endZone = this.add.zone(this.stage.goalX + 24, 340, 120, 240);
-      this.physics.add.existing(endZone, true);
-      this.physics.add.overlap(this.player, endZone, () => this.handleExitReached());
-    }
-
-    this.exitGate.setDepth(2);
+    const endZone = this.add.zone(this.stage.goalX + 24, 340, 120, 240);
+    this.physics.add.existing(endZone, true);
+    this.physics.add.overlap(this.player, endZone, () => this.handleExitReached());
   }
 
   private createUi(): void {
-    this.healthText = this.add
-      .text(18, 16, '체력', {
-        color: '#2e2100',
-        fontSize: '21px',
-        fontStyle: 'bold',
-        backgroundColor: 'rgba(255, 245, 190, 0.78)',
-        padding: { x: 10, y: 6 }
-      })
-      .setScrollFactor(0)
-      .setDepth(900);
+    this.hud = this.add.graphics().setScrollFactor(0).setDepth(900);
 
-    this.healthBar = this.add.graphics().setScrollFactor(0).setDepth(901);
+    this.talismanText = this.add.text(60, 63, '', hudText(19)).setScrollFactor(0).setDepth(902);
+    StageManager.getCompanions().forEach((name, index) => {
+      const face = this.add.image(150 + index * 40, 74, companionTextures[name]).setScrollFactor(0).setDepth(902);
+      face.setScale(38 / face.height);
+    });
 
-    this.coinText = this.add
-      .text(GAME_WIDTH - 18, 16, '', {
-        color: '#2e2100',
-        fontSize: '20px',
-        fontStyle: 'bold',
-        backgroundColor: 'rgba(255, 245, 190, 0.78)',
-        padding: { x: 10, y: 6 }
-      })
-      .setOrigin(1, 0)
-      .setScrollFactor(0)
-      .setDepth(900);
-
-    this.titleText = this.add
-      .text(GAME_WIDTH / 2, 17, `제 ${this.stage.chapter}장 · ${this.stage.title}`, {
-        color: '#2e2100',
-        fontSize: '21px',
-        fontStyle: 'bold',
-        backgroundColor: 'rgba(255, 245, 190, 0.72)',
-        padding: { x: 12, y: 6 }
-      })
+    this.add
+      .text(GAME_WIDTH / 2, 12, `제 ${this.stage.chapter}장 · ${this.stage.title}`, hudText(23, '#fff3b0'))
       .setOrigin(0.5, 0)
-      .setScrollFactor(0)
-      .setDepth(900);
-
-    this.levelText = this.add
-      .text(GAME_WIDTH - 18, 62, '', {
-        color: '#fff5bd',
-        fontSize: '16px',
-        fontStyle: 'bold',
-        backgroundColor: 'rgba(48, 40, 27, 0.72)',
-        padding: { x: 9, y: 5 }
-      })
-      .setOrigin(1, 0)
       .setScrollFactor(0)
       .setDepth(902);
-    this.experienceBar = this.add.graphics().setScrollFactor(0).setDepth(902);
-
-    this.objectiveText = this.add
-      .text(GAME_WIDTH / 2, 56, `목표: ${this.stage.objective}`, {
-        align: 'center',
-        color: '#fff8d6',
-        fontSize: '15px',
-        fontStyle: 'bold',
-        backgroundColor: 'rgba(42, 35, 24, 0.72)',
-        padding: { x: 10, y: 5 },
-        wordWrap: { width: 480 }
-      })
+    this.add
+      .text(GAME_WIDTH / 2, 48, this.stage.objective, { ...hudText(18), align: 'center', wordWrap: { width: 540 } })
       .setOrigin(0.5, 0)
       .setScrollFactor(0)
-      .setDepth(900);
+      .setDepth(902);
 
-    const companions = StageManager.getCompanions();
-    this.companionsText = this.add
-      .text(18, 62, companions.length > 0 ? `동료 ${companions.length}명 · 구름 부적 ${this.revivesRemaining}` : `구름 부적 ${this.revivesRemaining} · 동료 찾기`, {
-        color: '#fff4c4',
-        fontSize: '15px',
-        fontStyle: 'bold',
-        backgroundColor: 'rgba(48, 40, 27, 0.66)',
-        padding: { x: 8, y: 5 }
-      })
-      .setScrollFactor(0)
-      .setDepth(900);
+    this.add.image(GAME_WIDTH - 196, 32, 'corn-coin').setScrollFactor(0).setDepth(902);
+    this.coinText = this.add.text(GAME_WIDTH - 174, 17, '', hudText(22)).setScrollFactor(0).setDepth(902);
+    this.levelText = this.add.text(GAME_WIDTH - 212, 52, '', hudText(17, '#d9ffb3')).setScrollFactor(0).setDepth(902);
 
+    this.createPauseButton();
     this.bossBar = this.add.graphics().setScrollFactor(0).setDepth(901);
+    if (this.stage.boss) {
+      this.bossBarName = this.add.text(GAME_WIDTH / 2, 92, this.stage.boss.name, hudText(18, '#ffd6c9')).setOrigin(0.5, 0).setScrollFactor(0).setDepth(902).setVisible(false);
+    }
     this.createSurviveTimerUi();
     this.updateUi();
+  }
+
+  private createPauseButton(): void {
+    const x = GAME_WIDTH - 42;
+    const y = 40;
+    const button = this.add.graphics().setScrollFactor(0).setDepth(903);
+    button.fillStyle(0xfff7dc, 0.85).fillCircle(x, y, 27).lineStyle(3, 0x6d4a00, 0.9).strokeCircle(x, y, 27);
+    button.fillStyle(0x5a3a00, 1).fillRoundedRect(x - 10, y - 11, 7, 22, 2).fillRoundedRect(x + 3, y - 11, 7, 22, 2);
+    this.add
+      .zone(x, y, 70, 70)
+      .setScrollFactor(0)
+      .setDepth(904)
+      .setInteractive()
+      .on('pointerdown', () => this.openPause());
   }
 
   private createSurviveTimerUi(): void {
@@ -639,12 +689,12 @@ export class StageScene extends Phaser.Scene {
     const seconds = this.stage.gimmicks.find((gimmick) => gimmick.type === 'surviveRun')?.value ?? 35;
     this.surviveRemainingMs = seconds * 1000;
     this.surviveTimerText = this.add
-      .text(GAME_WIDTH / 2, 120, '', {
+      .text(GAME_WIDTH / 2, 134, '', {
         color: '#ffffff',
-        fontSize: '22px',
+        fontSize: '24px',
         fontStyle: 'bold',
-        backgroundColor: 'rgba(30, 72, 130, 0.78)',
-        padding: { x: 12, y: 6 }
+        backgroundColor: 'rgba(30, 72, 130, 0.82)',
+        padding: { x: 14, y: 6 }
       })
       .setOrigin(0.5, 0)
       .setScrollFactor(0)
@@ -653,49 +703,40 @@ export class StageScene extends Phaser.Scene {
   }
 
   private updateUi(): void {
-    this.drawHealthBar();
-    this.coinText.setText(`옥수수 코인: ${this.coinCount}`);
-    this.drawExperienceBar();
-  }
-
-  private drawExperienceBar(): void {
+    this.drawHud();
+    this.talismanText.setText(`× ${this.revivesRemaining}`);
+    this.coinText.setText(this.stage.id === 'stage-01' ? `${Math.min(this.coinCount, REQUIRED_COINS)} / ${REQUIRED_COINS}` : `${this.coinCount}`);
     const progress = StageManager.getLevelProgress();
-    const width = 174;
-    const height = 11;
-    const x = GAME_WIDTH - width - 18;
-    const y = 96;
-    const ratio = progress.level >= 10 ? 1 : progress.experience / progress.required;
-
-    this.levelText.setText(progress.level >= 10 ? `레벨 ${progress.level} · 최고!` : `레벨 ${progress.level} · 경험 ${progress.experience}/${progress.required}`);
-    this.experienceBar.clear();
-    this.experienceBar.fillStyle(0x2b2117, 0.82);
-    this.experienceBar.fillRoundedRect(x, y, width, height, 4);
-    this.experienceBar.fillStyle(0x63cf65, 1);
-    this.experienceBar.fillRoundedRect(x + 2, y + 2, Math.max(4, (width - 4) * ratio), height - 4, 3);
-    this.experienceBar.lineStyle(2, 0xffe48a, 0.9);
-    this.experienceBar.strokeRoundedRect(x, y, width, height, 4);
+    this.levelText.setText(`레벨 ${progress.level}`);
   }
 
-  private drawHealthBar(): void {
-    this.healthBar.clear();
+  private drawHud(): void {
+    const g = this.hud;
+    g.clear();
 
-    const x = 82;
-    const y = 20;
-    const width = 132;
-    const height = 24;
-    const gap = 4;
-    const segmentWidth = (width - gap * (this.player.maxHealth - 1)) / this.player.maxHealth;
-
-    this.healthBar.fillStyle(0x2b1808, 0.82);
-    this.healthBar.fillRoundedRect(x - 4, y - 4, width + 8, height + 8, 6);
-
-    for (let i = 0; i < this.player.maxHealth; i += 1) {
-      this.healthBar.fillStyle(i < this.player.health ? 0xe9463f : 0x6f4b3f, 1);
-      this.healthBar.fillRoundedRect(x + i * (segmentWidth + gap), y, segmentWidth, height, 4);
+    // Hearts: one per health point, easy to count at a glance.
+    const max = this.player.maxHealth;
+    const step = 26;
+    g.fillStyle(0x2a1a08, 0.55).fillRoundedRect(10, 10, 14 + max * step, 40, 12);
+    for (let i = 0; i < max; i += 1) {
+      const cx = 29 + i * step;
+      const cy = 30;
+      g.fillStyle(i < this.player.health ? 0xf0453c : 0x5e463d, 1);
+      g.fillCircle(cx - 5, cy - 3, 6).fillCircle(cx + 5, cy - 3, 6).fillTriangle(cx - 11, cy - 1, cx + 11, cy - 1, cx, cy + 10);
     }
 
-    this.healthBar.lineStyle(2, 0xffdf73, 0.9);
-    this.healthBar.strokeRoundedRect(x - 4, y - 4, width + 8, height + 8, 6);
+    // Cloud talismans (extra lives) and the faces of companions who joined.
+    g.fillStyle(0x2a1a08, 0.55).fillRoundedRect(10, 56, 120 + StageManager.getCompanions().length * 40, 38, 12);
+    g.fillStyle(0xffffff, 1).fillCircle(28, 78, 8).fillCircle(39, 72, 10).fillCircle(50, 78, 8).fillRect(28, 78, 22, 8);
+
+    // Corn coins and level.
+    g.fillStyle(0x2a1a08, 0.55).fillRoundedRect(GAME_WIDTH - 220, 10, 150, 72, 12);
+    const progress = StageManager.getLevelProgress();
+    const ratio = progress.level >= 10 ? 1 : progress.experience / progress.required;
+    const barX = GAME_WIDTH - 140;
+    const barY = 60;
+    g.fillStyle(0x1a120a, 0.9).fillRoundedRect(barX, barY, 62, 12, 5);
+    g.fillStyle(progress.level >= 10 ? 0xffd44f : 0x7ddc5a, 1).fillRoundedRect(barX + 2, barY + 2, Math.max(4, 58 * ratio), 8, 4);
   }
 
   private updateBossBar(): void {
@@ -704,32 +745,21 @@ export class StageScene extends Phaser.Scene {
     }
 
     this.bossBar.clear();
-    if (!this.boss?.active) {
+    const show = Boolean(this.boss?.active) && Math.abs(this.boss!.x - this.player.x) < BOSS_BAR_RANGE;
+    this.bossBarName?.setVisible(show);
+    if (!show || !this.boss) {
       return;
     }
 
-    const width = 420;
+    const width = 360;
     const x = (GAME_WIDTH - width) / 2;
-    const y = 94;
-    this.bossBar.fillStyle(0x23160a, 0.82);
-    this.bossBar.fillRoundedRect(x, y, width, 18, 5);
+    const y = 118;
+    this.bossBar.fillStyle(0x23160a, 0.85);
+    this.bossBar.fillRoundedRect(x, y, width, 18, 6);
     this.bossBar.fillStyle(0xe74b3c, 1);
     this.bossBar.fillRoundedRect(x + 3, y + 3, (width - 6) * this.boss.hpRatio, 12, 4);
     this.bossBar.lineStyle(2, 0xffdf73, 0.9);
-    this.bossBar.strokeRoundedRect(x, y, width, 18, 5);
-  }
-
-  private updateBossNameText(): void {
-    if (!this.bossNameText) {
-      return;
-    }
-
-    if (!this.boss?.active) {
-      this.bossNameText.setVisible(false);
-      return;
-    }
-
-    this.bossNameText.setPosition(this.boss.x, this.boss.y - this.boss.displayHeight - 8);
+    this.bossBar.strokeRoundedRect(x, y, width, 18, 6);
   }
 
   private handlePlayerEnemyCollision(enemy: Enemy): void {
@@ -773,17 +803,22 @@ export class StageScene extends Phaser.Scene {
     }
     if (this.hitThisSwing.has(enemy)) return;
     this.hitThisSwing.add(enemy);
+    Sfx.hit();
     const defeated = enemy.takeHit(StageManager.getAttackDamage());
     if (defeated) {
       this.gainExperience(enemy.enemyType === 'boss' ? 5 : 2);
     }
   }
 
-  private collectCoin(coinObject: Phaser.GameObjects.GameObject): void {
-    coinObject.destroy();
+  private collectCoin(coin: Phaser.Physics.Arcade.Sprite): void {
+    this.collectedCoins.add(coin.getData('index') as number);
+    coin.destroy();
     this.coinCount += 1;
+    Sfx.coin();
+    if (this.stage.id === 'stage-01' && this.coinCount === REQUIRED_COINS) {
+      this.showFloatingMessage('코인을 다 모았어요! 화과산으로 가요 →', 1800);
+    }
     this.gainExperience(1);
-    this.updateUi();
   }
 
   private gainExperience(amount: number): void {
@@ -792,6 +827,7 @@ export class StageScene extends Phaser.Scene {
       this.player.setAttackRangeMultiplier(StageManager.getAttackRangeMultiplier());
       this.player.setLevelMovementMultiplier(StageManager.getMovementMultiplier());
       this.player.applyLevelUp(progress.level, StageManager.getMaxHealth());
+      Sfx.levelUp();
       this.showFloatingMessage('힘과 체력이 자랐어요!', 1500);
     }
     this.updateUi();
@@ -803,48 +839,34 @@ export class StageScene extends Phaser.Scene {
     }
 
     itemObject.destroy();
+    Sfx.heal();
     this.updateUi();
-    const healText = this.add
-      .text(this.player.x, this.player.y - 170, '회복!', {
-        color: '#baff8a',
-        fontSize: '20px',
-        fontStyle: 'bold',
-        stroke: '#12440f',
-        strokeThickness: 4
-      })
-      .setOrigin(0.5)
-      .setDepth(80);
-
-    this.tweens.add({
-      targets: healText,
-      y: healText.y - 24,
-      alpha: 0,
-      duration: 900,
-      onComplete: () => healText.destroy()
-    });
+    this.showFloatingMessage('회복!', 900, '#baff8a');
   }
 
   private handlePlayerDamaged(): void {
     this.updateUi();
-    if (this.player.health <= 0) {
-      if (this.revivesRemaining > 0) {
-        this.revivesRemaining -= 1;
-        const companions = StageManager.getCompanions();
-        this.companionsText?.setText(companions.length > 0 ? `동료 ${companions.length}명 · 구름 부적 ${this.revivesRemaining}` : `구름 부적 ${this.revivesRemaining} · 동료 찾기`);
-        this.inputLocked = true;
-        this.player.revive();
-        this.showFloatingMessage('구름 부적이 도와줬어!', 1600);
-        this.time.delayedCall(900, () => {
-          if (!this.stageCleared) this.inputLocked = false;
-        });
-        this.updateUi();
-      } else {
-        this.restartStage();
-      }
+    if (this.player.health > 0) {
+      return;
+    }
+
+    if (this.revivesRemaining > 0) {
+      this.revivesRemaining -= 1;
+      this.inputLocked = true;
+      this.player.revive();
+      this.showFloatingMessage('구름 부적이 도와줬어!', 1600);
+      this.time.delayedCall(900, () => {
+        if (!this.stageCleared) this.inputLocked = false;
+      });
+      this.updateUi();
+    } else {
+      this.restartStage();
     }
   }
 
   private handleBossDefeated(): void {
+    Sfx.reward();
+    this.cameras.main.flash(260, 255, 244, 190);
     if (this.stage.clearMode === 'boss') {
       this.unlockBossExit();
       return;
@@ -869,49 +891,34 @@ export class StageScene extends Phaser.Scene {
       this.staffItem.body.enable = true;
     }
     this.staffItem.refreshBody();
-    this.staffHint?.setText(`${this.stage.reward?.label ?? '보물'} 획득!`);
+    this.staffHint?.setText(`${josa(this.stage.reward?.label ?? '보물', '을', '를')} 잡아요!`);
     if (message) {
       this.showFloatingMessage(message, 1600);
     }
   }
 
   private handleExitReached(): void {
-    if (this.stage.id === 'stage-01' && this.coinCount < 5) {
-      this.showFloatingMessage(`옥수수 코인 ${5 - this.coinCount}개가 더 필요해!`, 1200);
+    if (this.stage.id === 'stage-01' && this.coinCount < REQUIRED_COINS) {
+      if (this.time.now > this.exitLockedMessageAt) {
+        this.exitLockedMessageAt = this.time.now + 1600;
+        this.showFloatingMessage(`옥수수 코인 ${REQUIRED_COINS - this.coinCount}개가 더 필요해! ← 뒤에 있어요`, 1500);
+      }
       return;
     }
 
     if (this.stage.clearMode === 'boss' && !this.bossExitUnlocked) {
       if (this.time.now > this.exitLockedMessageAt) {
         this.exitLockedMessageAt = this.time.now + 1800;
-        const warning = this.add
-          .text(this.player.x, this.player.y - 150, '보스를 먼저 물리치자!', {
-            color: '#fff1a3',
-            fontSize: '20px',
-            fontStyle: 'bold',
-            stroke: '#3a1700',
-            strokeThickness: 4
-          })
-          .setOrigin(0.5)
-          .setDepth(80);
-
-        this.tweens.add({
-          targets: warning,
-          y: warning.y - 20,
-          alpha: 0,
-          duration: 1000,
-          onComplete: () => warning.destroy()
-        });
+        this.showFloatingMessage(`${josa(this.stage.boss?.name ?? '보스', '을', '를')} 먼저 물리치자!`, 1000);
       }
       return;
     }
 
-    if (this.stage.clearMode === 'survive') {
-      if (this.surviveRemainingMs > 0) {
-        this.showFloatingMessage('아직 추격 중이야!', 1000);
-        return;
+    if (this.stage.clearMode === 'survive' && this.surviveRemainingMs > 0) {
+      if (this.time.now > this.exitLockedMessageAt) {
+        this.exitLockedMessageAt = this.time.now + 1600;
+        this.showFloatingMessage('아직 추격 중이야! 조금만 더 버텨요', 1000);
       }
-      this.completeStage();
       return;
     }
 
@@ -925,30 +932,25 @@ export class StageScene extends Phaser.Scene {
 
     this.bossExitUnlocked = true;
     this.exitGate?.setFillStyle(0x8cff6b, 0.95).setStrokeStyle(4, 0xffffff);
-    this.exitHint?.setText('길 열림!');
+    this.exitHint?.setText(`${this.stage.goalLabel} → 길이 열렸어요!`);
     this.inputLocked = true;
     this.dialogue.show(chapterStories[this.stage.id].resolution, () => {
       this.inputLocked = false;
     });
   }
 
-  private showFloatingMessage(message: string, duration = 1000): void {
+  private showFloatingMessage(message: string, duration = 1000, color = '#fff1a3'): void {
     const floating = this.add
-      .text(this.player.x, this.player.y - 150, message, {
-        color: '#fff1a3',
-        fontSize: '20px',
-        fontStyle: 'bold',
-        stroke: '#3a1700',
-        strokeThickness: 4
-      })
+      .text(this.player.x, this.player.y - 160, message, { ...hudText(23, color), align: 'center' })
       .setOrigin(0.5)
       .setDepth(80);
 
     this.tweens.add({
       targets: floating,
-      y: floating.y - 20,
+      y: floating.y - 24,
       alpha: 0,
-      duration,
+      delay: duration * 0.35,
+      duration: duration * 0.65,
       onComplete: () => floating.destroy()
     });
   }
@@ -959,6 +961,7 @@ export class StageScene extends Phaser.Scene {
     }
 
     this.rewardCollected = true;
+    Sfx.reward();
     if (this.stage.reward?.type === 'staff') {
       StageManager.setStaffUpgraded(true);
       this.player.setAttackRangeMultiplier(StageManager.getAttackRangeMultiplier());
@@ -980,6 +983,7 @@ export class StageScene extends Phaser.Scene {
 
     this.stageCleared = true;
     this.inputLocked = true;
+    Sfx.clear();
     StageManager.markStageCleared(this.stage.id);
     this.dialogue.show(this.stage.clearDialogue, () => {
       if (StageManager.isLastStage(this.stage.id)) {
@@ -994,18 +998,24 @@ export class StageScene extends Phaser.Scene {
     this.inputLocked = true;
     this.player.disableBody(true, false);
     this.add
-      .text(GAME_WIDTH / 2, 156, '다시 도전!', {
+      .text(GAME_WIDTH / 2, 190, '괜찮아요, 다시 해 봐요!', {
         color: '#4f2500',
-        fontSize: '42px',
+        fontSize: '40px',
         fontStyle: 'bold',
-        backgroundColor: 'rgba(255, 232, 152, 0.9)',
-        padding: { x: 18, y: 12 }
+        align: 'center',
+        backgroundColor: 'rgba(255, 232, 152, 0.94)',
+        padding: { x: 22, y: 14 }
       })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(2100);
 
-    this.time.delayedCall(1200, () => this.scene.restart({ stageId: this.stage.id }));
+    const retry: RetryState = {
+      checkpointX: this.checkpointX,
+      seenBeats: [...this.storyBeatsSeen],
+      collectedCoins: [...this.collectedCoins]
+    };
+    this.time.delayedCall(1500, () => this.scene.restart({ stageId: this.stage.id, retry }));
   }
 
   private applyGimmicks(delta: number): void {
@@ -1023,7 +1033,12 @@ export class StageScene extends Phaser.Scene {
       return;
     }
 
+    const before = this.windTimer;
     this.windTimer += delta;
+    // Announce each gust a moment early so children can brace for it.
+    if (before < 2000 && this.windTimer >= 2000) {
+      this.showFloatingMessage('휘이잉~ 바람이 와요!', 900, '#fff8d6');
+    }
     if (this.windTimer > 2600) {
       const body = this.player.body as Phaser.Physics.Arcade.Body;
       body.setVelocityX(body.velocity.x - (wind.value ?? 90));
@@ -1061,669 +1076,7 @@ export class StageScene extends Phaser.Scene {
     const seconds = Math.ceil(this.surviveRemainingMs / 1000);
     this.surviveTimerText.setText(`추격전: ${seconds}초 버티기`);
     if (seconds <= 10) {
-      this.surviveTimerText.setStyle({
-        color: '#fff1a3',
-        fontSize: '24px',
-        fontStyle: 'bold',
-        backgroundColor: 'rgba(143, 35, 35, 0.82)',
-        padding: { x: 12, y: 6 }
-      });
+      this.surviveTimerText.setBackgroundColor('rgba(143, 35, 35, 0.86)');
     }
-  }
-
-  private createGeneratedTextures(): void {
-    if (!this.textures.exists('corn-coin')) {
-      const graphics = this.add.graphics();
-      graphics.fillStyle(0xffd437, 1);
-      graphics.fillEllipse(16, 16, 24, 28);
-      graphics.lineStyle(3, 0x9b6800, 1);
-      graphics.strokeEllipse(16, 16, 24, 28);
-      graphics.lineBetween(16, 4, 16, 28);
-      graphics.lineBetween(8, 14, 24, 14);
-      graphics.lineBetween(9, 21, 23, 21);
-      graphics.generateTexture('corn-coin', 32, 32);
-      graphics.destroy();
-    }
-
-    if (!this.textures.exists('staff-item')) {
-      const graphics = this.add.graphics();
-      graphics.lineStyle(8, 0xffd23f, 1);
-      graphics.lineBetween(8, 32, 88, 18);
-      graphics.lineStyle(3, 0x8a5a00, 1);
-      graphics.lineBetween(8, 36, 88, 22);
-      graphics.fillStyle(0xffffff, 1);
-      graphics.fillCircle(88, 18, 5);
-      graphics.generateTexture('staff-item', 96, 48);
-      graphics.destroy();
-    }
-
-    if (!this.textures.exists('sutra-item')) {
-      const graphics = this.add.graphics();
-      graphics.fillStyle(0xfff0a8, 1);
-      graphics.fillRoundedRect(12, 8, 70, 48, 7);
-      graphics.lineStyle(4, 0xa44b24, 1);
-      graphics.strokeRoundedRect(12, 8, 70, 48, 7);
-      graphics.fillStyle(0xc73f2d, 1);
-      graphics.fillRect(39, 8, 16, 48);
-      graphics.fillStyle(0xffd75a, 1);
-      graphics.fillCircle(47, 32, 7);
-      graphics.lineStyle(3, 0x7d321f, 1);
-      graphics.lineBetween(18, 20, 35, 20);
-      graphics.lineBetween(59, 20, 76, 20);
-      graphics.generateTexture('sutra-item', 94, 64);
-      graphics.destroy();
-    }
-
-    if (!this.textures.exists('health-corn')) {
-      const graphics = this.add.graphics();
-      graphics.fillStyle(0x2f9c3f, 1);
-      graphics.fillCircle(16, 17, 13);
-      graphics.fillStyle(0xe94742, 1);
-      graphics.fillCircle(13, 15, 8);
-      graphics.fillCircle(21, 15, 8);
-      graphics.fillTriangle(7, 19, 27, 19, 17, 30);
-      graphics.lineStyle(3, 0xffffff, 1);
-      graphics.strokeCircle(16, 17, 13);
-      graphics.generateTexture('health-corn', 34, 34);
-      graphics.destroy();
-    }
-
-    if (!this.textures.exists('boss-orb')) {
-      const graphics = this.add.graphics();
-      graphics.fillStyle(0xffffff, 1);
-      graphics.fillCircle(18, 18, 16);
-      graphics.fillStyle(0xfff4b0, 1);
-      graphics.fillCircle(22, 14, 8);
-      graphics.lineStyle(3, 0x492b1a, 1);
-      graphics.strokeCircle(18, 18, 15);
-      graphics.generateTexture('boss-orb', 36, 36);
-      graphics.destroy();
-    }
-
-    if (!this.textures.exists('boss-wave')) {
-      const graphics = this.add.graphics();
-      graphics.fillStyle(0xffffff, 0.95);
-      graphics.fillTriangle(2, 26, 64, 4, 64, 48);
-      graphics.lineStyle(3, 0x6b3500, 1);
-      graphics.strokeTriangle(2, 26, 64, 4, 64, 48);
-      graphics.generateTexture('boss-wave', 68, 52);
-      graphics.destroy();
-    }
-
-    const colorByKey: Array<[string, number]> = [
-      ['honse', 0xb53a32], ['gatekeeper', 0x248aa8], ['erlang', 0x3568b8], ['bajie', 0xe68f9b],
-      ['sandy', 0x387d9d], ['yellowwind', 0xd4a238], ['boss-tiger', 0xdb7638], ['boss-mud', 0x655a34],
-      ['shadow', 0x604b91], ['crow', 0x202020], ['worm', 0x9bc34a], ['grasshopper', 0x65a54e],
-      ['bat', 0x4b3b72], ['stone', 0x8a8a8a], ['rock', 0x777f86], ['bubble', 0x9eeaff],
-      ['crab', 0xe06b43], ['seahorse', 0x62b6bf], ['cloud', 0xe9f5ff], ['thunder', 0x6e78c9],
-      ['heaven', 0xd6c159], ['wind', 0xd8c16d], ['pig', 0xc98287], ['pumpkin', 0xe79a3b],
-      ['bull', 0x704833], ['fish', 0x55a6d8], ['whirlpool', 0x3d87bd], ['frog', 0x70a952],
-      ['sand', 0xd0aa59], ['tornado', 0xb8aa82], ['wolf', 0x776854], ['tiger', 0xd57735],
-      ['tree', 0x4e7740], ['moth', 0x8b77a5], ['mud', 0x625232], ['swamp', 0x506a3d],
-      ['mist', 0x829574], ['pride', 0xb96b57], ['fear', 0x56638f], ['haste', 0xb68c3f]
-    ];
-
-    const spriteKeys = new Set<string>();
-    this.stage.enemies.forEach((enemy) => spriteKeys.add(enemy.spriteKey));
-    if (this.stage.boss) {
-      spriteKeys.add(this.stage.boss.spriteKey);
-    }
-
-    spriteKeys.forEach((key) => {
-      if (this.textures.exists(key)) {
-        return;
-      }
-
-      const color = colorByKey.find(([part]) => key.includes(part))?.[1] ?? 0x8b5a3a;
-      this.createStoryEnemyTexture(key, color);
-    });
-
-    const npc = this.stage.npc;
-    if (npc && !this.textures.exists(npc.spriteKey)) {
-      const graphics = this.add.graphics();
-      if (npc.spriteKey.includes('buddha')) {
-        graphics.fillStyle(0xffe66c, 0.45);
-        graphics.fillCircle(48, 42, 38);
-      }
-      graphics.fillStyle(0xf2bd78, 1);
-      graphics.fillCircle(48, 35, 20);
-      graphics.fillStyle(npc.color, 1);
-      graphics.fillRoundedRect(18, 54, 60, 67, 18);
-      graphics.lineStyle(4, 0x5a321c, 1);
-      graphics.strokeRoundedRect(18, 54, 60, 67, 18);
-      graphics.fillStyle(npc.spriteKey.includes('buddha') ? 0x275eaa : 0x8d2929, 1);
-      graphics.fillRect(43, 57, 10, 61);
-      graphics.fillStyle(0x2a1a10, 1);
-      graphics.fillCircle(41, 34, 2);
-      graphics.fillCircle(55, 34, 2);
-      graphics.lineStyle(2, 0x6b321a, 1);
-      graphics.lineBetween(42, 44, 54, 44);
-      graphics.generateTexture(npc.spriteKey, 96, 128);
-      graphics.destroy();
-    }
-
-    const companionLooks: Record<string, { key: string; body: number; head: number; accent: number }> = {
-      '삼장법사': { key: 'companion-samjang', body: 0xe9b44c, head: 0xf2bd78, accent: 0xa32f2f },
-      '저팔계': { key: 'companion-bajie', body: 0x5a9e62, head: 0xe99a9f, accent: 0x6e3c31 },
-      '사오정': { key: 'companion-sandy', body: 0x4d8fb4, head: 0x74a9b9, accent: 0x8a2f2a }
-    };
-    StageManager.getCompanions().forEach((name) => {
-      const look = companionLooks[name];
-      if (!look || this.textures.exists(look.key)) {
-        return;
-      }
-
-      const graphics = this.add.graphics();
-      if (name === '저팔계') {
-        graphics.fillStyle(look.head, 1);
-        graphics.fillCircle(10, 21, 8);
-        graphics.fillCircle(38, 21, 8);
-      }
-      graphics.fillStyle(look.head, 1);
-      graphics.fillCircle(24, 21, 15);
-      graphics.fillStyle(look.body, 1);
-      graphics.fillRoundedRect(8, 34, 32, 30, 10);
-      graphics.lineStyle(3, 0x4b2c1b, 1);
-      graphics.strokeRoundedRect(8, 34, 32, 30, 10);
-      graphics.fillStyle(look.accent, 1);
-      graphics.fillRect(21, 35, 6, 27);
-      graphics.fillStyle(0x24170f, 1);
-      graphics.fillCircle(19, 20, 2);
-      graphics.fillCircle(29, 20, 2);
-      if (name === '삼장법사') {
-        graphics.fillStyle(0xa32f2f, 1);
-        graphics.fillRect(12, 3, 24, 7);
-        graphics.fillRect(17, 0, 14, 9);
-      } else if (name === '사오정') {
-        graphics.fillStyle(0x8a2f2a, 1);
-        graphics.fillCircle(24, 6, 9);
-      } else {
-        graphics.fillStyle(0xd87f85, 1);
-        graphics.fillEllipse(24, 27, 15, 9);
-      }
-      graphics.generateTexture(look.key, 48, 66);
-      graphics.destroy();
-    });
-  }
-
-  private createStoryEnemyTexture(key: string, color: number): void {
-    const isBoss = key.startsWith('boss-');
-    const width = isBoss ? 112 : 96;
-    const height = isBoss ? 90 : 78;
-    const outline = 0x3b2717;
-    const cream = 0xffedb5;
-    const graphics = this.add.graphics();
-    const lineWidth = isBoss ? 5 : 4;
-
-    const ellipse = (x: number, y: number, w: number, h: number, fill: number, stroke = outline) => {
-      graphics.fillStyle(fill, 1);
-      graphics.fillEllipse(x, y, w, h);
-      graphics.lineStyle(lineWidth, stroke, 1);
-      graphics.strokeEllipse(x, y, w, h);
-    };
-    const circle = (x: number, y: number, radius: number, fill: number, stroke = outline) => {
-      graphics.fillStyle(fill, 1);
-      graphics.fillCircle(x, y, radius);
-      graphics.lineStyle(lineWidth, stroke, 1);
-      graphics.strokeCircle(x, y, radius);
-    };
-    const rounded = (x: number, y: number, w: number, h: number, radius: number, fill: number, stroke = outline) => {
-      graphics.fillStyle(fill, 1);
-      graphics.fillRoundedRect(x, y, w, h, radius);
-      graphics.lineStyle(lineWidth, stroke, 1);
-      graphics.strokeRoundedRect(x, y, w, h, radius);
-    };
-    const triangle = (x1: number, y1: number, x2: number, y2: number, x3: number, y3: number, fill: number) => {
-      graphics.fillStyle(fill, 1);
-      graphics.fillTriangle(x1, y1, x2, y2, x3, y3);
-      graphics.lineStyle(lineWidth, outline, 1);
-      graphics.strokeTriangle(x1, y1, x2, y2, x3, y3);
-    };
-    const eyes = (y: number, left = width * 0.39, right = width * 0.61, radius = isBoss ? 7 : 6) => {
-      circle(left, y, radius, 0xffffff);
-      circle(right, y, radius, 0xffffff);
-      graphics.fillStyle(0x24170f, 1);
-      graphics.fillCircle(left + 1, y + 1, Math.max(2, radius - 3));
-      graphics.fillCircle(right + 1, y + 1, Math.max(2, radius - 3));
-    };
-    const mouth = (y: number, halfWidth = 10) => {
-      graphics.lineStyle(lineWidth - 1, outline, 1);
-      graphics.lineBetween(width / 2 - halfWidth, y, width / 2 + halfWidth, y);
-    };
-    const feet = (left: number, right: number, y: number, fill = cream) => {
-      ellipse(left, y, 18, 8, fill);
-      ellipse(right, y, 18, 8, fill);
-    };
-    const speedLines = (x: number, y: number, fill = outline) => {
-      graphics.lineStyle(4, fill, 1);
-      graphics.lineBetween(x, y, x + 15, y);
-      graphics.lineBetween(x + 3, y + 9, x + 19, y + 9);
-      graphics.lineBetween(x, y + 18, x + 12, y + 18);
-    };
-
-    switch (key) {
-      case 'enemy-crow':
-        ellipse(48, 43, 56, 48, color);
-        triangle(22, 41, 5, 28, 25, 58, 0x323232);
-        triangle(70, 38, 94, 44, 71, 52, 0xffc83d);
-        circle(57, 33, 7, 0xffffff);
-        graphics.fillStyle(0x24170f, 1);
-        graphics.fillCircle(59, 34, 3);
-        feet(38, 57, 69, 0xffc83d);
-        break;
-      case 'enemy-worm':
-        circle(27, 52, 15, 0x7ea943);
-        circle(46, 48, 17, color);
-        circle(68, 44, 19, 0xb5d95e);
-        eyes(40, 62, 74, 5);
-        graphics.lineStyle(3, outline, 1);
-        graphics.lineBetween(61, 25, 57, 15);
-        graphics.lineBetween(73, 25, 79, 14);
-        break;
-      case 'enemy-grasshopper':
-        ellipse(50, 45, 55, 40, color);
-        circle(71, 34, 15, 0x82bc55);
-        eyes(31, 67, 77, 5);
-        graphics.lineStyle(4, outline, 1);
-        graphics.lineBetween(28, 54, 10, 70);
-        graphics.lineBetween(43, 58, 33, 75);
-        graphics.lineBetween(67, 20, 60, 8);
-        graphics.lineBetween(76, 20, 85, 7);
-        break;
-      case 'enemy-bat':
-        triangle(38, 35, 4, 16, 16, 59, 0x66538d);
-        triangle(58, 35, 92, 16, 80, 59, 0x66538d);
-        ellipse(48, 45, 31, 50, color);
-        triangle(36, 26, 38, 10, 47, 28, color);
-        triangle(60, 26, 58, 10, 49, 28, color);
-        eyes(39, 42, 54, 5);
-        mouth(55, 7);
-        break;
-      case 'enemy-stone':
-        rounded(15, 24, 66, 45, 15, color);
-        triangle(20, 30, 37, 12, 48, 28, 0xa6a6a6);
-        graphics.lineStyle(3, 0x5b5b5b, 1);
-        graphics.lineBetween(26, 39, 37, 47);
-        graphics.lineBetween(37, 47, 31, 59);
-        eyes(43, 38, 59, 5);
-        mouth(58, 8);
-        break;
-      case 'enemy-horn':
-        triangle(30, 27, 22, 3, 43, 26, cream);
-        triangle(66, 27, 74, 3, 53, 26, cream);
-        rounded(14, 23, 68, 48, 17, color);
-        eyes(43);
-        graphics.fillStyle(0xffcf8d, 1);
-        graphics.fillEllipse(48, 55, 21, 13);
-        mouth(61, 8);
-        break;
-      case 'enemy-bubble':
-        circle(49, 40, 29, 0x9eeaff, 0x3287a6);
-        circle(24, 22, 9, 0xdaf8ff, 0x3287a6);
-        circle(75, 16, 7, 0xdaf8ff, 0x3287a6);
-        graphics.fillStyle(0xffffff, 0.8);
-        graphics.fillCircle(39, 28, 7);
-        eyes(43, 41, 58, 5);
-        mouth(57, 7);
-        break;
-      case 'enemy-crab':
-        ellipse(48, 47, 55, 38, color);
-        circle(16, 38, 12, 0xed8057);
-        circle(80, 38, 12, 0xed8057);
-        graphics.lineStyle(4, outline, 1);
-        graphics.lineBetween(33, 52, 18, 69);
-        graphics.lineBetween(43, 57, 36, 73);
-        graphics.lineBetween(63, 53, 78, 69);
-        graphics.lineBetween(53, 58, 60, 73);
-        circle(39, 28, 7, 0xffffff);
-        circle(57, 28, 7, 0xffffff);
-        graphics.fillStyle(0x24170f, 1);
-        graphics.fillCircle(40, 29, 3);
-        graphics.fillCircle(58, 29, 3);
-        mouth(52, 8);
-        break;
-      case 'enemy-seahorse':
-        circle(57, 27, 18, color);
-        ellipse(46, 51, 27, 39, 0x72c9c9);
-        rounded(66, 25, 24, 10, 5, cream);
-        circle(59, 24, 5, 0xffffff);
-        graphics.fillStyle(0x24170f, 1);
-        graphics.fillCircle(60, 25, 2);
-        graphics.lineStyle(5, outline, 1);
-        graphics.lineBetween(42, 66, 28, 69);
-        graphics.lineBetween(28, 69, 24, 58);
-        graphics.lineBetween(24, 58, 33, 54);
-        triangle(36, 39, 20, 30, 33, 52, 0x4c9aa5);
-        break;
-      case 'enemy-cloud':
-        circle(32, 48, 20, 0xf5fbff, 0x60788b);
-        circle(49, 38, 25, color, 0x60788b);
-        circle(69, 49, 18, 0xf5fbff, 0x60788b);
-        rounded(27, 27, 43, 10, 4, 0xd7b83c);
-        eyes(45, 41, 57, 5);
-        graphics.lineStyle(4, 0x8c6a22, 1);
-        graphics.lineBetween(83, 18, 83, 70);
-        triangle(83, 15, 76, 29, 90, 29, 0xffd45a);
-        break;
-      case 'enemy-thunderbird':
-        ellipse(48, 43, 55, 44, color);
-        triangle(24, 42, 3, 17, 33, 31, 0x7d8fe1);
-        triangle(69, 42, 93, 20, 66, 34, 0x7d8fe1);
-        triangle(69, 39, 94, 44, 70, 53, 0xffd34e);
-        circle(57, 34, 6, 0xffffff);
-        graphics.fillStyle(0x24170f, 1);
-        graphics.fillCircle(59, 35, 3);
-        graphics.lineStyle(6, 0xffdc4f, 1);
-        graphics.lineBetween(38, 45, 50, 51);
-        graphics.lineBetween(50, 51, 42, 64);
-        break;
-      case 'enemy-heaven-spear':
-        circle(46, 29, 18, 0xe9b77a);
-        rounded(22, 43, 49, 30, 9, color);
-        rounded(29, 7, 34, 13, 4, 0xe7c348);
-        triangle(46, 6, 37, 18, 55, 18, 0xf6dc67);
-        eyes(29, 40, 52, 5);
-        graphics.lineStyle(5, outline, 1);
-        graphics.lineBetween(80, 8, 80, 74);
-        triangle(80, 4, 72, 18, 88, 18, 0xffd45a);
-        break;
-      case 'enemy-rock':
-        rounded(10, 26, 76, 45, 13, color);
-        triangle(15, 32, 35, 12, 49, 30, 0x929aa0);
-        triangle(52, 29, 68, 14, 82, 35, 0x6d7479);
-        eyes(45, 38, 59, 5);
-        graphics.lineStyle(3, 0x454b4f, 1);
-        graphics.lineBetween(61, 52, 69, 60);
-        graphics.lineBetween(69, 60, 62, 69);
-        mouth(59, 10);
-        break;
-      case 'enemy-mountain-wind':
-        ellipse(50, 46, 69, 45, color, 0x806532);
-        graphics.lineStyle(5, 0xf4e3a1, 1);
-        graphics.lineBetween(18, 30, 42, 30);
-        graphics.lineBetween(9, 43, 34, 43);
-        graphics.lineBetween(17, 56, 40, 56);
-        eyes(43, 53, 68, 5);
-        graphics.lineStyle(4, outline, 1);
-        graphics.strokeCircle(61, 58, 7);
-        break;
-      case 'enemy-stone-monkey':
-        circle(24, 37, 12, 0x777f86);
-        circle(72, 37, 12, 0x777f86);
-        ellipse(48, 44, 53, 52, color);
-        ellipse(48, 49, 31, 26, 0xc7b28e);
-        eyes(39, 40, 56, 5);
-        graphics.lineStyle(4, outline, 1);
-        graphics.lineBetween(69, 59, 84, 67);
-        graphics.lineBetween(84, 67, 89, 56);
-        break;
-      case 'enemy-pig':
-        circle(27, 30, 12, 0xe9a2a6);
-        circle(69, 30, 12, 0xe9a2a6);
-        ellipse(48, 44, 57, 50, color);
-        ellipse(48, 52, 28, 18, 0xf3b0ad);
-        graphics.fillStyle(0x8b4947, 1);
-        graphics.fillCircle(43, 52, 3);
-        graphics.fillCircle(53, 52, 3);
-        eyes(37, 40, 56, 5);
-        break;
-      case 'enemy-pumpkin':
-        ellipse(48, 47, 63, 49, color);
-        graphics.lineStyle(3, 0xb55c1c, 1);
-        graphics.strokeEllipse(38, 47, 26, 47);
-        graphics.strokeEllipse(58, 47, 26, 47);
-        rounded(43, 9, 11, 17, 4, 0x4f7d35);
-        triangle(31, 41, 41, 34, 42, 45, 0xffe270);
-        triangle(65, 41, 55, 34, 54, 45, 0xffe270);
-        mouth(57, 12);
-        break;
-      case 'enemy-bull':
-        triangle(31, 28, 13, 8, 39, 22, cream);
-        triangle(65, 28, 83, 8, 57, 22, cream);
-        ellipse(48, 44, 61, 51, color);
-        circle(35, 35, 7, 0xffffff);
-        circle(61, 35, 7, 0xffffff);
-        graphics.fillStyle(0x24170f, 1);
-        graphics.fillCircle(37, 36, 3);
-        graphics.fillCircle(63, 36, 3);
-        ellipse(48, 55, 29, 18, 0xb9865e);
-        break;
-      case 'enemy-fish':
-        triangle(29, 42, 5, 23, 5, 61, 0x7ac7ea);
-        ellipse(54, 42, 61, 40, color, 0x315d7b);
-        triangle(50, 29, 65, 12, 70, 32, 0x7ac7ea);
-        circle(70, 36, 6, 0xffffff);
-        graphics.fillStyle(0x24170f, 1);
-        graphics.fillCircle(72, 37, 3);
-        mouth(51, 7);
-        break;
-      case 'enemy-whirlpool':
-        ellipse(48, 49, 72, 38, color, 0x245f8c);
-        ellipse(48, 45, 50, 24, 0x71bde0, 0x245f8c);
-        ellipse(48, 43, 25, 11, 0xd1f3ff, 0x245f8c);
-        eyes(47, 41, 56, 4);
-        break;
-      case 'enemy-frog':
-        circle(32, 29, 15, color);
-        circle(64, 29, 15, color);
-        ellipse(48, 48, 62, 45, 0x7fba57);
-        circle(33, 28, 7, 0xffffff);
-        circle(63, 28, 7, 0xffffff);
-        graphics.fillStyle(0x24170f, 1);
-        graphics.fillCircle(34, 29, 3);
-        graphics.fillCircle(64, 29, 3);
-        mouth(54, 15);
-        feet(28, 68, 71, 0x91ca64);
-        break;
-      case 'enemy-sand':
-        ellipse(49, 48, 74, 40, color, 0x886a32);
-        circle(29, 42, 17, 0xe0be70, 0x886a32);
-        circle(63, 39, 22, 0xd7b467, 0x886a32);
-        eyes(45, 51, 66, 5);
-        graphics.lineStyle(4, 0xffe4a1, 1);
-        graphics.lineBetween(13, 61, 42, 61);
-        break;
-      case 'enemy-tornado':
-        graphics.lineStyle(12, color, 1);
-        graphics.lineBetween(18, 23, 80, 23);
-        graphics.lineBetween(27, 38, 70, 38);
-        graphics.lineBetween(35, 53, 63, 53);
-        graphics.lineBetween(43, 68, 55, 68);
-        graphics.lineStyle(4, outline, 1);
-        graphics.lineBetween(15, 18, 83, 18);
-        graphics.lineBetween(25, 33, 73, 33);
-        graphics.lineBetween(33, 48, 66, 48);
-        eyes(28, 42, 58, 5);
-        break;
-      case 'enemy-dust-wolf':
-        triangle(29, 29, 21, 7, 43, 25, color);
-        triangle(67, 29, 75, 7, 53, 25, color);
-        ellipse(48, 44, 64, 50, color);
-        ellipse(61, 50, 30, 22, 0xa28d69);
-        eyes(38, 39, 58, 6);
-        graphics.lineStyle(4, outline, 1);
-        graphics.lineBetween(22, 60, 10, 69);
-        break;
-      case 'enemy-tiger':
-        triangle(29, 29, 23, 8, 43, 25, color);
-        triangle(67, 29, 73, 8, 53, 25, color);
-        ellipse(48, 44, 64, 51, color);
-        eyes(39, 39, 57, 6);
-        ellipse(48, 53, 26, 18, cream);
-        graphics.lineStyle(4, 0x4a2916, 1);
-        graphics.lineBetween(48, 20, 48, 31);
-        graphics.lineBetween(26, 31, 37, 35);
-        graphics.lineBetween(70, 31, 59, 35);
-        break;
-      case 'enemy-tree':
-        rounded(39, 38, 18, 37, 5, 0x81512d);
-        circle(31, 35, 23, color, 0x36562c);
-        circle(58, 30, 25, 0x5c894a, 0x36562c);
-        circle(70, 47, 18, color, 0x36562c);
-        eyes(39, 41, 58, 5);
-        mouth(54, 8);
-        break;
-      case 'enemy-moth':
-        ellipse(24, 42, 37, 49, 0xa993bd, 0x4c3d63);
-        ellipse(72, 42, 37, 49, 0xa993bd, 0x4c3d63);
-        ellipse(48, 45, 20, 49, color, 0x4c3d63);
-        circle(48, 25, 10, 0xbba9ca, 0x4c3d63);
-        graphics.lineStyle(3, outline, 1);
-        graphics.lineBetween(44, 17, 35, 5);
-        graphics.lineBetween(52, 17, 61, 5);
-        eyes(25, 44, 52, 4);
-        break;
-      case 'enemy-mud':
-        ellipse(48, 52, 71, 38, color);
-        circle(29, 45, 17, 0x76623d);
-        circle(61, 39, 23, color);
-        eyes(43, 52, 69, 5);
-        mouth(57, 9);
-        break;
-      case 'enemy-swamp':
-        ellipse(48, 52, 73, 37, color, 0x31462a);
-        circle(31, 43, 18, 0x5e7f49, 0x31462a);
-        circle(61, 40, 22, color, 0x31462a);
-        eyes(42, 50, 68, 5);
-        graphics.lineStyle(4, 0x7fa65d, 1);
-        graphics.lineBetween(17, 43, 10, 19);
-        graphics.lineBetween(78, 43, 86, 16);
-        break;
-      case 'enemy-mist-bug':
-        ellipse(27, 42, 38, 34, 0xb9d5aa, 0x50634a);
-        ellipse(69, 42, 38, 34, 0xb9d5aa, 0x50634a);
-        ellipse(48, 45, 25, 49, color, 0x50634a);
-        graphics.lineStyle(4, outline, 1);
-        graphics.lineBetween(44, 22, 36, 7);
-        graphics.lineBetween(52, 22, 60, 7);
-        eyes(36, 43, 53, 5);
-        break;
-      case 'enemy-pride':
-        triangle(31, 27, 38, 7, 47, 27, 0xffd35a);
-        triangle(47, 27, 55, 4, 64, 27, 0xffd35a);
-        ellipse(48, 47, 61, 48, color);
-        eyes(41, 39, 57, 5);
-        graphics.lineStyle(4, outline, 1);
-        graphics.lineBetween(35, 31, 44, 34);
-        graphics.lineBetween(61, 31, 52, 34);
-        mouth(58, 11);
-        break;
-      case 'enemy-fear':
-        triangle(20, 53, 32, 68, 43, 53, color);
-        triangle(42, 53, 53, 70, 64, 53, color);
-        triangle(62, 53, 76, 67, 80, 48, color);
-        ellipse(48, 39, 60, 48, color);
-        eyes(36, 38, 58, 8);
-        graphics.fillStyle(0x24170f, 1);
-        graphics.fillCircle(48, 57, 6);
-        break;
-      case 'enemy-haste':
-        speedLines(3, 27, 0x8d6720);
-        ellipse(58, 43, 61, 47, color);
-        eyes(37, 52, 69, 5);
-        graphics.lineStyle(4, outline, 1);
-        graphics.lineBetween(49, 29, 57, 33);
-        graphics.lineBetween(76, 29, 68, 33);
-        mouth(55, 9);
-        break;
-      case 'boss-honse':
-        triangle(32, 31, 21, 2, 47, 26, cream);
-        triangle(80, 31, 91, 2, 65, 26, cream);
-        rounded(8, 25, 96, 60, 20, color);
-        eyes(48, 44, 68, 7);
-        triangle(56, 54, 49, 65, 63, 65, 0xffd6a0);
-        mouth(70, 15);
-        break;
-      case 'boss-gatekeeper':
-        rounded(8, 26, 96, 58, 18, color, 0x214d68);
-        rounded(18, 10, 76, 22, 7, 0xd9b83d, 0x573d16);
-        triangle(56, 2, 45, 18, 67, 18, 0xf5d45b);
-        eyes(48, 45, 67, 7);
-        graphics.fillStyle(0xf1cf55, 1);
-        graphics.fillCircle(24, 67, 8);
-        graphics.fillCircle(88, 67, 8);
-        mouth(68, 12);
-        break;
-      case 'boss-erlang':
-        rounded(9, 26, 94, 58, 18, color, 0x1e416f);
-        rounded(20, 9, 72, 18, 5, 0xe0bf45, 0x5d431c);
-        triangle(56, 2, 47, 15, 65, 15, 0xffdc62);
-        eyes(50, 45, 67, 7);
-        circle(56, 34, 5, 0xff7757, 0x5d261c);
-        mouth(69, 12);
-        break;
-      case 'boss-bajie':
-        circle(25, 28, 15, 0xf0a3aa);
-        circle(87, 28, 15, 0xf0a3aa);
-        rounded(8, 25, 96, 60, 22, color);
-        eyes(47, 45, 68, 7);
-        ellipse(56, 61, 34, 22, 0xf4b6b3);
-        graphics.fillStyle(0x8f4b49, 1);
-        graphics.fillCircle(50, 61, 4);
-        graphics.fillCircle(62, 61, 4);
-        break;
-      case 'boss-sandy':
-        circle(56, 12, 12, 0xb84734);
-        rounded(9, 25, 94, 60, 19, color, 0x244b61);
-        eyes(48, 45, 67, 7);
-        graphics.fillStyle(0xf2d059, 1);
-        [24, 40, 56, 72, 88].forEach((x) => graphics.fillCircle(x, 73, 5));
-        mouth(64, 12);
-        break;
-      case 'boss-yellowwind':
-        circle(27, 27, 15, 0xd9af4d);
-        circle(85, 27, 15, 0xd9af4d);
-        rounded(9, 25, 94, 60, 20, color, 0x79581e);
-        eyes(47, 45, 69, 7);
-        triangle(72, 50, 103, 59, 72, 66, 0xe8c675);
-        graphics.lineStyle(3, outline, 1);
-        graphics.lineBetween(73, 57, 101, 48);
-        graphics.lineBetween(73, 61, 103, 70);
-        break;
-      case 'boss-tiger':
-        triangle(30, 30, 23, 5, 49, 24, color);
-        triangle(82, 30, 89, 5, 63, 24, color);
-        rounded(8, 24, 96, 61, 22, color);
-        eyes(48, 45, 68, 7);
-        ellipse(56, 60, 32, 21, cream);
-        graphics.lineStyle(5, outline, 1);
-        graphics.lineBetween(56, 25, 56, 38);
-        graphics.lineBetween(24, 35, 40, 40);
-        graphics.lineBetween(88, 35, 72, 40);
-        break;
-      case 'boss-mud':
-        ellipse(56, 63, 101, 43, color, 0x3e351f);
-        circle(31, 47, 23, 0x776a3e, 0x3e351f);
-        circle(69, 39, 31, color, 0x3e351f);
-        eyes(46, 58, 79, 7);
-        mouth(68, 15);
-        break;
-      case 'boss-shadow':
-        graphics.lineStyle(8, 0x46366d, 1);
-        graphics.lineBetween(17, 78, 96, 12);
-        graphics.lineStyle(3, 0xd8b94c, 1);
-        graphics.lineBetween(14, 81, 99, 10);
-        circle(22, 39, 15, 0x745da7, 0x34294f);
-        circle(90, 39, 15, 0x745da7, 0x34294f);
-        rounded(10, 24, 92, 61, 22, color, 0x34294f);
-        rounded(27, 22, 58, 12, 5, 0xd8b94c, 0x5f4318);
-        triangle(56, 7, 45, 24, 67, 24, 0xf0cf57);
-        ellipse(56, 61, 39, 27, 0x816bae, 0x34294f);
-        eyes(48, 46, 67, 7);
-        mouth(68, 10);
-        graphics.lineStyle(5, outline, 1);
-        graphics.lineBetween(89, 68, 105, 78);
-        graphics.lineBetween(105, 78, 108, 65);
-        break;
-      default:
-        rounded(8, 23, width - 16, height - 30, 18, color);
-        eyes(height * 0.5);
-        mouth(height - 18);
-        break;
-    }
-
-    graphics.generateTexture(key, width, height);
-    graphics.destroy();
-    this.textures.get(key).setFilter(Phaser.Textures.FilterMode.LINEAR);
   }
 }

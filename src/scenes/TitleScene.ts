@@ -1,9 +1,15 @@
 import Phaser from 'phaser';
 import { stages } from '../game/data/stages';
+import { Settings } from '../game/Settings';
 import { StageManager } from '../game/StageManager';
-import { GAME_HEIGHT, GAME_WIDTH } from '../gameConfig';
+import { GAME_HEIGHT, GAME_WIDTH } from '../constants';
+import { enterFullscreen } from '../platform/webapp';
+import { createButton } from '../ui/Button';
+import { companionTextures } from '../game/data/companions';
 
 export class TitleScene extends Phaser.Scene {
+  private confirmLayer?: Phaser.GameObjects.Container;
+
   constructor() {
     super('TitleScene');
   }
@@ -17,17 +23,18 @@ export class TitleScene extends Phaser.Scene {
       }
     }
 
+    this.confirmLayer = undefined;
     this.add.image(0, 0, 'background-cornfield').setOrigin(0).setDisplaySize(GAME_WIDTH, GAME_HEIGHT);
     this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x173d2b, 0.16).setOrigin(0);
-    this.add.rectangle(0, GAME_HEIGHT - 120, GAME_WIDTH, 120, 0x244b32, 0.68).setOrigin(0);
-    this.add.text(GAME_WIDTH / 2, 74, '옥수수손오공', {
+    this.add.rectangle(0, GAME_HEIGHT - 132, GAME_WIDTH, 132, 0x244b32, 0.68).setOrigin(0);
+    this.add.text(GAME_WIDTH / 2, 70, '옥수수손오공', {
       color: '#fff3a6',
-      fontSize: '54px',
+      fontSize: '60px',
       fontStyle: 'bold',
       stroke: '#4a2b00',
-      strokeThickness: 7
+      strokeThickness: 8
     }).setOrigin(0.5);
-    this.add.text(GAME_WIDTH / 2, 133, '서유기 · 천축국으로 떠나는 열두 장의 모험', {
+    this.add.text(GAME_WIDTH / 2, 132, '서유기 · 천축국으로 떠나는 열두 장의 모험', {
       color: '#ffffff',
       fontSize: '26px',
       fontStyle: 'bold',
@@ -35,67 +42,89 @@ export class TitleScene extends Phaser.Scene {
       strokeThickness: 5
     }).setOrigin(0.5);
 
-    const hero = this.add.image(GAME_WIDTH / 2, 318, 'corn-wukong-clean-run').setDisplaySize(172, 172);
-    this.tweens.add({
-      targets: hero,
-      y: hero.y - 8,
-      angle: 2,
-      duration: 620,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut'
+    const hero = this.add.image(GAME_WIDTH / 2, 300, 'corn-wukong-clean-run').setDisplaySize(170, 170);
+    this.tweens.add({ targets: hero, y: hero.y - 8, angle: 2, duration: 620, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+
+    // Companions who already joined walk behind the hero on the title screen.
+    const companions = StageManager.getCompanions();
+    companions.forEach((name, index) => {
+      const friend = this.add.image(GAME_WIDTH / 2 - 120 - index * 74, 330, companionTextures[name]).setOrigin(0.5, 0.5);
+      friend.setScale(96 / friend.height);
+      this.tweens.add({ targets: friend, y: friend.y - 5, duration: 700 + index * 90, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
     });
 
     const cleared = StageManager.getClearedChapter();
-    const companions = StageManager.getCompanions();
-    this.add.text(GAME_WIDTH / 2, 397, cleared > 0 ? `레벨 ${StageManager.getLevel()} · 여행 ${cleared} / ${StageManager.getStageCount()}장 · 동료 ${companions.length}명` : '레벨 1 · 옥수수밭에서 시작되는 작은 영웅의 첫걸음', {
+    const status = cleared > 0
+      ? `레벨 ${StageManager.getLevel()} · ${cleared} / ${StageManager.getStageCount()}장 완료 · 동료 ${companions.length}명`
+      : '옥수수에서 태어난 작은 원숭이의 첫걸음';
+    this.add.text(GAME_WIDTH / 2, 400, status, {
       color: '#fff8d6',
-      fontSize: '19px',
+      fontSize: '21px',
       fontStyle: 'bold',
-      backgroundColor: 'rgba(31, 53, 35, 0.68)',
-      padding: { x: 10, y: 5 }
+      backgroundColor: 'rgba(31, 53, 35, 0.72)',
+      padding: { x: 14, y: 6 }
     }).setOrigin(0.5);
 
-    this.createButton(GAME_WIDTH / 2 - 150, 456, '새 여행', () => {
-      StageManager.resetProgress();
-      this.scene.start('StageScene', { stageId: StageManager.getFirstStageId() });
+    if (StageManager.hasProgress()) {
+      const continueLabel = cleared >= StageManager.getStageCount() ? '마지막 장 다시 ▶' : `제 ${Math.min(cleared + 1, StageManager.getStageCount())}장 이어하기 ▶`;
+      createButton(this, GAME_WIDTH / 2 + 110, 472, continueLabel, () => this.continueJourney(), { width: 290, height: 68, fontSize: 26, primary: true });
+      createButton(this, GAME_WIDTH / 2 - 180, 472, '새 여행', () => this.askNewJourney(), { width: 170, height: 60, fontSize: 23 });
+    } else {
+      createButton(this, GAME_WIDTH / 2, 472, '여행 시작 ▶', () => this.startNewJourney(), { width: 300, height: 72, fontSize: 30, primary: true });
+    }
+
+    this.createSettingToggle(84, 30, () => `효과음 ${Settings.sound ? '켜짐' : '꺼짐'}`, () => {
+      Settings.sound = !Settings.sound;
     });
 
-    const continueLabel = cleared >= StageManager.getStageCount() ? '마지막 장' : '이어하기';
-    this.createButton(GAME_WIDTH / 2 + 150, 456, continueLabel, () => {
-      this.scene.start('StageScene', { stageId: StageManager.getContinueStageId() });
-    }, StageManager.hasProgress());
-
+    // Enter continues a saved journey instead of silently erasing it.
     this.input.keyboard?.once('keydown-ENTER', () => {
-      StageManager.resetProgress();
-      this.scene.start('StageScene', { stageId: StageManager.getFirstStageId() });
-    });
-    this.input.keyboard?.once('keydown-C', () => {
-      this.scene.start('StageScene', { stageId: StageManager.getContinueStageId() });
+      if (StageManager.hasProgress()) this.continueJourney();
+      else this.startNewJourney();
     });
   }
 
-  private createButton(x: number, y: number, label: string, onClick: () => void, enabled = true): void {
-    const button = this.add
-      .rectangle(x, y, 220, 54, enabled ? 0xffffff : 0xd9d1b6, enabled ? 0.78 : 0.48)
-      .setStrokeStyle(3, enabled ? 0x6e4300 : 0x81745f);
-    const text = this.add
-      .text(x, y, label, {
-        color: enabled ? '#3d2600' : '#766a56',
-        fontSize: '24px',
-        fontStyle: 'bold'
-      })
-      .setOrigin(0.5);
+  private createSettingToggle(x: number, y: number, label: () => string, toggle: () => void): void {
+    const button = createButton(this, x, y, label(), () => {
+      toggle();
+      (button.getData('label') as Phaser.GameObjects.Text).setText(label());
+    }, { width: 168, height: 44, fontSize: 18 });
+  }
 
-    if (!enabled) {
-      return;
-    }
+  private continueJourney(): void {
+    this.beginPlay(StageManager.getContinueStageId());
+  }
 
-    button.setInteractive();
-    text.setInteractive();
-    button.on('pointerover', () => button.setFillStyle(0xffedaa, 0.95));
-    button.on('pointerout', () => button.setFillStyle(0xffffff, 0.78));
-    button.on('pointerdown', onClick);
-    text.on('pointerdown', onClick);
+  private startNewJourney(): void {
+    StageManager.resetProgress();
+    this.beginPlay(StageManager.getFirstStageId());
+  }
+
+  private beginPlay(stageId: string): void {
+    if (this.confirmLayer) return;
+    enterFullscreen(this);
+    this.scene.start('StageScene', { stageId });
+  }
+
+  // Children tap quickly; never erase a saved journey without asking.
+  private askNewJourney(): void {
+    if (this.confirmLayer) return;
+    const shade = this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x120c06, 0.7).setOrigin(0).setInteractive();
+    const panel = this.add.graphics();
+    panel.fillStyle(0xfff3cf, 0.98).fillRoundedRect(GAME_WIDTH / 2 - 270, 130, 540, 270, 24);
+    panel.lineStyle(5, 0x8a5a1a, 1).strokeRoundedRect(GAME_WIDTH / 2 - 270, 130, 540, 270, 24);
+    const question = this.add.text(GAME_WIDTH / 2, 200, '처음부터 다시 할까요?\n지금까지의 여행 기록이 지워져요.', {
+      color: '#4a2b00', fontSize: '26px', fontStyle: 'bold', align: 'center', lineSpacing: 10
+    }).setOrigin(0.5);
+    const close = () => {
+      this.confirmLayer?.destroy(true);
+      this.confirmLayer = undefined;
+    };
+    const yes = createButton(this, GAME_WIDTH / 2 - 120, 320, '네, 처음부터', () => {
+      close();
+      this.startNewJourney();
+    }, { width: 210 });
+    const no = createButton(this, GAME_WIDTH / 2 + 120, 320, '아니요', close, { width: 190, primary: true });
+    this.confirmLayer = this.add.container(0, 0, [shade, panel, question, yes, no]).setDepth(100);
   }
 }

@@ -2,11 +2,26 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="description" content="옥수수에서 태어난 손오공이 친구들과 천축국으로 떠나는 어린이 서유기 모험 게임" />
+    <meta name="theme-color" content="#1d140b" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="옥수수손오공" />
+    <meta name="format-detection" content="telephone=no" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <title>옥수수손오공: 서유기 열두 장의 모험</title>
   </head>
   <body>
     <div id="game-container"></div>
+    <div id="rotate-hint" role="alert">
+      <div class="rotate-phone" aria-hidden="true"></div>
+      <p>기기를 옆으로 눕혀 주세요</p>
+      <small>가로 화면에서 모험이 이어져요</small>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
