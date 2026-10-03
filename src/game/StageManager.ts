@@ -6,6 +6,7 @@ const staffUpgradeKey = 'corn-wukong-staff-upgraded';
 const companionsKey = 'corn-wukong-companions';
 const levelKey = 'corn-wukong-level';
 const experienceKey = 'corn-wukong-experience';
+const starsKey = 'corn-wukong-stars';
 const maxLevel = 10;
 
 export type LevelProgress = {
@@ -52,7 +53,8 @@ export class StageManager {
 
   static markStageCleared(stageId: string): void {
     const stage = getStage(stageId);
-    this.write(storageKey, stageId);
+    // Replaying an earlier chapter must not move the saved journey backwards.
+    if (stage.chapter > this.getClearedChapter()) this.write(storageKey, stageId);
     if (stage.companionUnlock) {
       const companions = new Set(this.getCompanions());
       companions.add(stage.companionUnlock);
@@ -62,7 +64,7 @@ export class StageManager {
 
   static resetProgress(): void {
     this.previewProgress.clear();
-    for (const key of [storageKey, staffUpgradeKey, companionsKey, levelKey, experienceKey]) {
+    for (const key of [storageKey, staffUpgradeKey, companionsKey, levelKey, experienceKey, starsKey]) {
       safeStorage.remove(key);
     }
   }
@@ -169,6 +171,34 @@ export class StageManager {
     if (clearedChapter >= 6) companions.add('저팔계');
     if (clearedChapter >= 7) companions.add('사오정');
     return ['삼장법사', '저팔계', '사오정'].filter((name) => companions.has(name));
+  }
+
+  // Companions who had already joined by the start of this chapter, so a
+  // replayed early chapter does not show friends met later in the story.
+  static getCompanionsForChapter(chapter: number): string[] {
+    const joinedBefore = new Set<string>(stages.filter((stage) => stage.companionUnlock && stage.chapter < chapter).map((stage) => stage.companionUnlock!));
+    return this.getCompanions().filter((name) => joinedBefore.has(name));
+  }
+
+  // Best star rating (1-3) earned in each chapter; 0 if not cleared yet.
+  static getStars(stageId: string): number {
+    return this.readStars()[stageId] ?? 0;
+  }
+
+  static recordStars(stageId: string, stars: number): number {
+    const all = this.readStars();
+    all[stageId] = Math.max(all[stageId] ?? 0, Math.min(3, Math.max(1, stars)));
+    this.write(starsKey, JSON.stringify(all));
+    return all[stageId];
+  }
+
+  private static readStars(): Record<string, number> {
+    try {
+      const stored = JSON.parse(this.read(starsKey) ?? '{}');
+      return stored && typeof stored === 'object' ? stored : {};
+    } catch {
+      return {};
+    }
   }
 
   static getClearedChapter(): number {

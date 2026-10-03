@@ -26,6 +26,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private currentPose?: 'idle' | 'run' | 'attack' | 'crouch';
   private lastGroundedAt = 0;
   private jumpBufferedUntil = 0;
+  private cloudJumpUnlocked = false;
+  private cloudJumpUsed = false;
 
   constructor(scene: Phaser.Scene, x: number, y: number, maxHealth = 6) {
     super(scene, x, y, 'corn-wukong-clean-idle');
@@ -64,6 +66,11 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.movementMultiplier = multiplier;
   }
 
+  // 근두운: one extra jump in mid-air, refreshed on landing.
+  setCloudJump(unlocked: boolean): void {
+    this.cloudJumpUnlocked = unlocked;
+  }
+
   setLevelMovementMultiplier(multiplier: number): void {
     this.levelMovementMultiplier = multiplier;
   }
@@ -90,7 +97,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     const crouching = input.down && grounded && !this.attacking;
     const jumpPressed = input.jump && !this.previousJump;
     const attackPressed = input.attack && !this.previousAttack;
-    if (grounded && body.velocity.y >= 0) this.lastGroundedAt = now;
+    if (grounded && body.velocity.y >= 0) {
+      this.lastGroundedAt = now;
+      this.cloudJumpUsed = false;
+    }
     if (jumpPressed) this.jumpBufferedUntil = now + JUMP_BUFFER_MS;
 
     let velocityX = 0;
@@ -110,6 +120,12 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       this.jumpBufferedUntil = 0;
       this.lastGroundedAt = -Infinity;
       Sfx.jump();
+    } else if (jumpPressed && this.cloudJumpUnlocked && !this.cloudJumpUsed && !grounded && !crouching) {
+      body.setVelocityY(-540);
+      this.cloudJumpUsed = true;
+      this.jumpBufferedUntil = 0;
+      this.showCloudPuff();
+      Sfx.cloud();
     }
 
     if (attackPressed && !crouching) {
@@ -122,6 +138,14 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
     this.previousJump = input.jump;
     this.previousAttack = input.attack;
+  }
+
+  private showCloudPuff(): void {
+    const puff = this.scene.add.container(this.x, this.y - 6).setDepth(4.9);
+    for (const [dx, dy, r] of [[-22, 2, 13], [0, -4, 17], [22, 2, 13], [-9, 7, 11], [11, 7, 11]] as const) {
+      puff.add(this.scene.add.circle(dx, dy, r, 0xffffff, 0.95).setStrokeStyle(2, 0xbfe6ff));
+    }
+    this.scene.tweens.add({ targets: puff, scale: 1.5, alpha: 0, y: puff.y + 14, duration: 460, ease: 'Quad.easeOut', onComplete: () => puff.destroy() });
   }
 
   showStaffUpgradeEffect(): void {

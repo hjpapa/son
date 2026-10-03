@@ -209,7 +209,7 @@ test('all 12 chapters: art, story beats, real boss attacks, rewards and ending',
     await page.evaluate(() => {
       const s = (window as any).__GAME__.scene.getScene('StageScene');
       s.player.invulnerable = true;
-      s.player.setPosition(s.stage.worldWidth * 0.4 + 5, 432);
+      s.player.body.reset(s.stage.worldWidth * 0.4 + 5, 300);
     });
     await page.waitForTimeout(100);
     await dismiss(page);
@@ -453,4 +453,125 @@ test('music follows the story: chapter song, boss drums, quieter pause, clear sc
     return { off, on: Music.state.key };
   });
   expect(toggled).toEqual({ off: undefined, on: 'journey' });
+});
+
+test('terrain: every chapter has its own reachable steps and ledges, and boss arenas stay open', async ({ page }) => {
+  await page.goto('/?stage=stage-01');
+  await page.waitForFunction(() => (window as any).__GAME__?.scene.getScene('StageScene')?.dialogue);
+  const problems = await page.evaluate(async () => {
+    const { stages, coinSpots } = await import('/src/game/data/stages.ts');
+    const issues: string[] = [];
+    const layouts = new Set<string>();
+    for (const stage of stages as any[]) {
+      layouts.add(JSON.stringify(stage.platforms));
+      for (const p of stage.platforms) {
+        const top = p.y - (p.height ?? 26) / 2;
+        const bottom = p.y + (p.height ?? 26) / 2;
+        if (432 - top > 140) issues.push(`${stage.id}: ledge at ${p.x} is too high to reach`);
+        if (bottom > 335 && p.y < 340) issues.push(`${stage.id}: platform at ${p.x} is neither a step nor a ledge`);
+        const step = p.y >= 340;
+        // In the chase chapter the boss follows everywhere; it never teleports into steps.
+        const arenaStart = stage.boss && stage.clearMode !== 'survive' ? stage.boss.x - 450 : Infinity;
+        if (step && p.x + p.width / 2 > arenaStart && p.x - p.width / 2 < stage.goalX + 100) issues.push(`${stage.id}: step at ${p.x} blocks the boss arena`);
+        const spot = stage.npc?.x ?? stage.reward?.x;
+        if (step && spot !== undefined && Math.abs(p.x - spot) < p.width / 2 + 160) issues.push(`${stage.id}: step at ${p.x} crowds the goal`);
+      }
+      if (coinSpots(stage).length < 8) issues.push(`${stage.id}: too few coins`);
+    }
+    if (layouts.size !== stages.length) issues.push('some chapters share the same terrain');
+    return issues;
+  });
+  expect(problems).toEqual([]);
+});
+
+test('근두운: from chapter 2 a second jump works in mid-air, but not in chapter 1', async ({ page }) => {
+  const airJump = async (chapter: number) => {
+    await openStage(page, chapter);
+    await dismiss(page);
+    await page.evaluate(() => {
+      const s = (window as any).__GAME__.scene.getScene('StageScene');
+      s.player.invulnerable = true;
+      s.player.body.reset(300, 250); // in the air, well above the ground
+    });
+    await page.waitForTimeout(60);
+    // Track the highest point reached after pressing jump in mid-air.
+    await page.evaluate(() => {
+      const s = (window as any).__GAME__.scene.getScene('StageScene');
+      s.testStartY = s.player.y;
+      s.testTopY = s.player.y;
+      s.events.on('postupdate', () => { s.testTopY = Math.min(s.testTopY, s.player.y); });
+    });
+    await page.keyboard.down('ArrowUp');
+    await page.waitForTimeout(60);
+    await page.keyboard.up('ArrowUp');
+    await page.waitForTimeout(300);
+    return page.evaluate(() => {
+      const s = (window as any).__GAME__.scene.getScene('StageScene');
+      return { rising: s.testTopY < s.testStartY - 30, used: s.player.cloudJumpUsed };
+    });
+  };
+  expect(await airJump(2)).toEqual({ rising: true, used: true });
+  expect(await airJump(1)).toEqual({ rising: false, used: false });
+});
+
+test('chapter 1 teaches the controls with tips as the hero walks', async ({ page }) => {
+  await openStage(page, 1);
+  await dismiss(page);
+  expect(await page.evaluate(() => [...(window as any).__GAME__.scene.getScene('StageScene').tipsShown])).toEqual(['move']);
+  await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').player.body.reset(420, 432));
+  await expect.poll(() => page.evaluate(() => [...(window as any).__GAME__.scene.getScene('StageScene').tipsShown])).toEqual(['move', 'jump']);
+});
+
+test('stars: all corn coins earn three stars, and replaying an earlier chapter keeps progress', async ({ page }) => {
+  await openStage(page, 2);
+  await dismiss(page);
+  await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    s.coinCount = s.totalCoins;
+    s.completeStage();
+  });
+  await dismiss(page);
+  await page.waitForFunction(() => (window as any).__GAME__.scene.isActive('StageClearScene'));
+  const result = await page.evaluate(async () => {
+    const { StageManager } = await import('/src/game/StageManager.ts');
+    const clear = (window as any).__GAME__.scene.getScene('StageClearScene');
+    const best = StageManager.getStars('stage-02');
+    StageManager.markStageCleared('stage-01'); // replaying chapter 1 after chapter 2
+    return { shown: clear.result.stars, best, cleared: StageManager.getClearedChapter() };
+  });
+  expect(result).toEqual({ shown: 3, best: 3, cleared: 2 });
+});
+
+test('chapter select unlocks chapters reached so far and starts the chosen one', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    localStorage.setItem('corn-wukong-last-cleared-stage', 'stage-03');
+    localStorage.setItem('corn-wukong-stars', JSON.stringify({ 'stage-01': 3, 'stage-02': 1 }));
+  });
+  await page.reload();
+  await page.waitForFunction(() => (window as any).__GAME__?.scene.isActive('TitleScene'));
+  await page.evaluate(() => (window as any).__GAME__.scene.getScene('TitleScene').scene.start('ChapterSelectScene'));
+  await page.waitForFunction(() => (window as any).__GAME__.scene.isActive('ChapterSelectScene'));
+  const unlocked = await page.evaluate(() => {
+    const scene = (window as any).__GAME__.scene.getScene('ChapterSelectScene');
+    return [...scene.cards.entries()].filter(([, card]: any) => card.input?.enabled).map(([id]: any) => id);
+  });
+  expect(unlocked).toEqual(['stage-01', 'stage-02', 'stage-03', 'stage-04']);
+  await page.evaluate(() => (window as any).__GAME__.scene.getScene('ChapterSelectScene').cards.get('stage-02').emit('pointerup'));
+  await page.waitForFunction(() => (window as any).__GAME__.scene.getScene('StageScene')?.stage?.id === 'stage-02');
+  await page.evaluate(() => localStorage.clear());
+});
+
+test.describe('long phone', () => {
+  test.use({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true });
+
+  test('the game widens to fill a long phone screen instead of showing side bars', async ({ page }) => {
+    await openStage(page, 2);
+    const size = await page.evaluate(() => {
+      const game = (window as any).__GAME__;
+      return { width: game.scale.gameSize.width, canvas: game.canvas.getBoundingClientRect().width };
+    });
+    expect(size.width).toBeGreaterThan(1100);
+    expect(size.canvas).toBeGreaterThan(830);
+  });
 });

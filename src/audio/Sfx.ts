@@ -30,6 +30,10 @@ function melody(notes: number[], step: number, wave: Wave = 'triangle', volume =
 
 export const Sfx = {
   jump: () => tone(360, 0.16, { to: 760, wave: 'sine', volume: 0.35 }),
+  cloud: () => {
+    tone(420, 0.24, { to: 1000, wave: 'sine', volume: 0.3 });
+    tone(840, 0.2, { to: 1500, wave: 'triangle', volume: 0.08, delay: 0.03 });
+  },
   swing: () => tone(620, 0.12, { to: 210, wave: 'triangle', volume: 0.3 }),
   hit: () => {
     tone(260, 0.09, { to: 120, wave: 'square', volume: 0.22 });

@@ -7,6 +7,7 @@ import { GAME_HEIGHT, GAME_WIDTH } from '../constants';
 import { enterFullscreen } from '../platform/webapp';
 import { createButton } from '../ui/Button';
 import { companionTextures } from '../game/data/companions';
+import { addCoverBackground } from '../ui/background';
 
 export class TitleScene extends Phaser.Scene {
   private confirmLayer?: Phaser.GameObjects.Container;
@@ -26,7 +27,7 @@ export class TitleScene extends Phaser.Scene {
 
     this.confirmLayer = undefined;
     Music.play('title');
-    this.add.image(0, 0, 'background-cornfield').setOrigin(0).setDisplaySize(GAME_WIDTH, GAME_HEIGHT);
+    addCoverBackground(this, 'background-cornfield');
     this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x173d2b, 0.16).setOrigin(0);
     this.add.rectangle(0, GAME_HEIGHT - 132, GAME_WIDTH, 132, 0x244b32, 0.68).setOrigin(0);
     this.add.text(GAME_WIDTH / 2, 70, '옥수수손오공', {
@@ -69,8 +70,11 @@ export class TitleScene extends Phaser.Scene {
 
     if (StageManager.hasProgress()) {
       const continueLabel = cleared >= StageManager.getStageCount() ? '마지막 장 다시 ▶' : `제 ${Math.min(cleared + 1, StageManager.getStageCount())}장 이어하기 ▶`;
-      createButton(this, GAME_WIDTH / 2 + 110, 472, continueLabel, () => this.continueJourney(), { width: 290, height: 68, fontSize: 26, primary: true });
-      createButton(this, GAME_WIDTH / 2 - 180, 472, '새 여행', () => this.askNewJourney(), { width: 170, height: 60, fontSize: 23 });
+      createButton(this, GAME_WIDTH / 2 + 181, 472, continueLabel, () => this.continueJourney(), { width: 290, height: 68, fontSize: 26, primary: true });
+      createButton(this, GAME_WIDTH / 2 - 65, 472, '장 고르기', () => {
+        if (!this.confirmLayer) this.scene.start('ChapterSelectScene');
+      }, { width: 170, height: 60, fontSize: 23, enabled: cleared > 0 });
+      createButton(this, GAME_WIDTH / 2 - 246, 472, '새 여행', () => this.askNewJourney(), { width: 160, height: 60, fontSize: 23 });
     } else {
       createButton(this, GAME_WIDTH / 2, 472, '여행 시작 ▶', () => this.startNewJourney(), { width: 300, height: 72, fontSize: 30, primary: true });
     }

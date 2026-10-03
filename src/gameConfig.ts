@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from './constants';
+import { ChapterSelectScene } from './scenes/ChapterSelectScene';
 import { EndingScene } from './scenes/EndingScene';
 import { PauseScene } from './scenes/PauseScene';
 import { PreloadScene } from './scenes/PreloadScene';
@@ -7,7 +8,8 @@ import { StageClearScene } from './scenes/StageClearScene';
 import { StageScene } from './scenes/StageScene';
 import { TitleScene } from './scenes/TitleScene';
 
-export const gameConfig: Phaser.Types.Core.GameConfig = {
+// Built after initGameSize() so the width matches this screen.
+export const createGameConfig = (): Phaser.Types.Core.GameConfig => ({
   type: Phaser.AUTO,
   parent: 'game-container',
   width: GAME_WIDTH,
@@ -33,5 +35,5 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
       debug: false
     }
   },
-  scene: [PreloadScene, TitleScene, StageScene, PauseScene, StageClearScene, EndingScene]
-};
+  scene: [PreloadScene, TitleScene, ChapterSelectScene, StageScene, PauseScene, StageClearScene, EndingScene]
+});

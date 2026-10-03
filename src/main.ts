@@ -1,10 +1,12 @@
 import Phaser from 'phaser';
 import { resumeAudio, suspendAudio, unlockAudio } from './audio/engine';
-import { gameConfig } from './gameConfig';
+import { initGameSize } from './constants';
+import { createGameConfig } from './gameConfig';
 import { preventBrowserGestures, registerServiceWorker, watchOrientation } from './platform/webapp';
 import './style.css';
 
-const game = new Phaser.Game(gameConfig);
+initGameSize();
+const game = new Phaser.Game(createGameConfig());
 
 unlockAudio();
 // Silence everything while the game is hidden or paused for the rotate hint.

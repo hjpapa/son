@@ -5,7 +5,7 @@ import { BossEnemy } from '../entities/BossEnemy';
 import { Enemy } from '../entities/Enemy';
 import { EnemyFactory } from '../entities/EnemyFactory';
 import { Player } from '../entities/Player';
-import { getStage, type StageBackgroundKey, type StageData, type StageHazard } from '../game/data/stages';
+import { coinSpots, getStage, type StageBackgroundKey, type StageData, type StageHazard } from '../game/data/stages';
 import { chapterStories } from '../game/data/story';
 import { josa } from '../game/korean';
 import { StageManager } from '../game/StageManager';
@@ -14,6 +14,7 @@ import type { PlayerInputState } from '../types/InputState';
 import { DialogueBox } from '../ui/DialogueBox';
 import { MobileControls } from '../ui/MobileControls';
 import { companionTextures } from '../game/data/companions';
+import { addCoverBackground } from '../ui/background';
 
 // Progress kept when a chapter restarts after the last talisman is used, so
 // a young player continues near where they fell instead of from the start.
@@ -48,16 +49,6 @@ const palettes: Record<StageBackgroundKey, BackgroundPalette> = {
   gold: { near: 0xb97b24, ground: 0xdfbd56, soil: 0x8a5a2b },
   ending: { near: 0xcaa24a, ground: 0x97c972, soil: 0x8a5a2b }
 };
-
-const coinPositions = [
-  { x: 430, y: 350 },
-  { x: 550, y: 350 },
-  { x: 680, y: 350 },
-  { x: 1130, y: 290 },
-  { x: 1240, y: 290 },
-  { x: 1740, y: 350 },
-  { x: 1870, y: 350 }
-];
 
 const REQUIRED_COINS = 5;
 const TALISMANS_PER_TRY = 2;
@@ -114,6 +105,10 @@ export class StageScene extends Phaser.Scene {
   private checkpointX = 0;
   private windTimer = 0;
   private revivesRemaining = TALISMANS_PER_TRY;
+  private totalCoins = 0;
+  private companions: string[] = [];
+  private tip?: Phaser.GameObjects.Container;
+  private tipsShown = new Set<string>();
 
   constructor() {
     super('StageScene');
@@ -121,6 +116,9 @@ export class StageScene extends Phaser.Scene {
 
   init(data: StageSceneInit): void {
     this.stage = getStage(data.stageId ?? StageManager.getFirstStageId());
+    this.companions = StageManager.getCompanionsForChapter(this.stage.chapter);
+    this.tip = undefined;
+    this.tipsShown = new Set();
     this.retry = data.retry;
     this.boss = undefined;
     this.staffItem = undefined;
@@ -197,6 +195,7 @@ export class StageScene extends Phaser.Scene {
     this.playChapterIntro(() => {
       this.dialogue.show(this.stage.startDialogue, () => {
         this.inputLocked = false;
+        this.showChapterTips();
       });
     });
   }
@@ -213,6 +212,7 @@ export class StageScene extends Phaser.Scene {
     this.updateCompanionFollowers();
 
     if (!gameplayPaused) {
+      this.updateTutorialTips();
       this.updateStoryBeats();
       if (this.dialogue.isOpen) return;
       this.enemies.children.each((child) => {
@@ -321,6 +321,8 @@ export class StageScene extends Phaser.Scene {
     this.player.setAttackRangeMultiplier(StageManager.getAttackRangeMultiplier());
     this.player.setStaffUpgraded(StageManager.isStaffUpgraded());
     this.player.setLevelMovementMultiplier(StageManager.getMovementMultiplier());
+    // Wukong learns the somersault cloud from 수보리 조사 at the end of chapter 1.
+    this.player.setCloudJump(this.stage.chapter >= 2);
     this.createCompanionFollowers();
 
     this.physics.add.collider(this.player, this.platforms);
@@ -337,7 +339,7 @@ export class StageScene extends Phaser.Scene {
   }
 
   private createCompanionFollowers(): void {
-    this.companionSprites = StageManager.getCompanions().map((name, index) => {
+    this.companionSprites = this.companions.map((name, index) => {
       return this.add.sprite(this.player.x - 58 * (index + 1), this.player.y, companionTextures[name]).setOrigin(0.5, 1).setDepth(4).setDisplaySize(78, 78);
     });
   }
@@ -438,8 +440,9 @@ export class StageScene extends Phaser.Scene {
         }
       }
 
-      // Name every danger so children learn what to jump over.
-      this.add.text(hazard.x, hazard.y - (hazard.type === 'wind' ? 150 : 62), hazard.label, hudText(16, '#ffe9a8')).setOrigin(0.5).setDepth(5).setAlpha(0.9);
+      // Name every danger so children learn what to jump over. The name sits on
+      // the ground strip below it, clear of any bridge built over the hazard.
+      this.add.text(hazard.x, hazard.type === 'wind' ? hazard.y - 150 : 456, hazard.label, hudText(16, '#ffe9a8')).setOrigin(0.5).setDepth(5).setAlpha(0.9);
 
       if (hazard.type !== 'mud' && hazard.type !== 'wind') {
         this.physics.add.overlap(this.player, zone, () => this.handleHazardHit(hazard));
@@ -503,12 +506,7 @@ export class StageScene extends Phaser.Scene {
     const palette = palettes[this.stage.backgroundKey];
     const textureKey = `background-${this.stage.backgroundKey}`;
     this.textures.get(textureKey).setFilter(Phaser.Textures.FilterMode.LINEAR);
-    this.add
-      .image(0, 0, textureKey)
-      .setOrigin(0)
-      .setDisplaySize(GAME_WIDTH, GAME_HEIGHT)
-      .setScrollFactor(0)
-      .setDepth(-20);
+    addCoverBackground(this, textureKey).setScrollFactor(0).setDepth(-20);
 
     this.add.rectangle(0, 432, worldWidth, 108, palette.ground, 0.5).setOrigin(0);
     this.add.rectangle(0, 486, worldWidth, 54, palette.soil, 0.72).setOrigin(0);
@@ -532,7 +530,9 @@ export class StageScene extends Phaser.Scene {
 
   private createCoins(): void {
     this.coins = this.physics.add.staticGroup();
-    coinPositions.forEach(({ x, y }, index) => {
+    const spots = coinSpots(this.stage);
+    this.totalCoins = spots.length;
+    spots.forEach(({ x, y }, index) => {
       if (this.collectedCoins.has(index)) return;
       const coin = this.coins.create(x, y, 'corn-coin') as Phaser.Physics.Arcade.Sprite;
       coin.setData('index', index);
@@ -543,14 +543,13 @@ export class StageScene extends Phaser.Scene {
 
   private createHealthItems(): void {
     this.healthItems = this.physics.add.staticGroup();
-    const candidates = Phaser.Utils.Array.Shuffle([
-      { x: 910, y: 326 },
-      { x: 1265, y: 326 },
-      { x: 1510, y: 386 },
-      { x: 1980, y: 306 },
-      { x: this.stage.goalX - 420, y: 386 },
-      { x: this.stage.goalX - 210, y: 386 }
-    ]);
+    // Healing corn waits on the walking path between ledges and before the
+    // boss, never over spikes or water where reaching for it would hurt.
+    const { platforms, hazards, goalX } = this.stage;
+    const between = platforms.slice(1).map((platform, index) => ({ x: (platforms[index].x + platform.x) / 2, y: 386 }));
+    const candidates = Phaser.Utils.Array.Shuffle([...between, { x: goalX - 420, y: 386 }, { x: goalX - 210, y: 386 }])
+      .filter(({ x }) => !hazards.some((hazard) => hazard.type !== 'wind' && Math.abs(x - hazard.x) < hazard.width / 2 + 40))
+      .filter(({ x }) => !platforms.some((platform) => platform.y >= 340 && Math.abs(x - platform.x) < platform.width / 2 + 30));
 
     candidates.slice(0, 3).forEach(({ x, y }) => {
       if (x < 260 || x > this.stage.goalX - 90) {
@@ -641,7 +640,7 @@ export class StageScene extends Phaser.Scene {
     this.hud = this.add.graphics().setScrollFactor(0).setDepth(900);
 
     this.talismanText = this.add.text(60, 63, '', hudText(19)).setScrollFactor(0).setDepth(902);
-    StageManager.getCompanions().forEach((name, index) => {
+    this.companions.forEach((name, index) => {
       const face = this.add.image(150 + index * 40, 74, companionTextures[name]).setScrollFactor(0).setDepth(902);
       face.setScale(38 / face.height);
     });
@@ -708,7 +707,9 @@ export class StageScene extends Phaser.Scene {
   private updateUi(): void {
     this.drawHud();
     this.talismanText.setText(`× ${this.revivesRemaining}`);
-    this.coinText.setText(this.stage.id === 'stage-01' ? `${Math.min(this.coinCount, REQUIRED_COINS)} / ${REQUIRED_COINS}` : `${this.coinCount}`);
+    // Chapter 1 first shows the 5 coins the gate needs, then the stars target.
+    const gate = this.stage.id === 'stage-01' && this.coinCount < REQUIRED_COINS;
+    this.coinText.setText(`${this.coinCount} / ${gate ? REQUIRED_COINS : this.totalCoins}`);
     const progress = StageManager.getLevelProgress();
     this.levelText.setText(`레벨 ${progress.level}`);
   }
@@ -729,7 +730,7 @@ export class StageScene extends Phaser.Scene {
     }
 
     // Cloud talismans (extra lives) and the faces of companions who joined.
-    g.fillStyle(0x2a1a08, 0.55).fillRoundedRect(10, 56, 120 + StageManager.getCompanions().length * 40, 38, 12);
+    g.fillStyle(0x2a1a08, 0.55).fillRoundedRect(10, 56, 120 + this.companions.length * 40, 38, 12);
     g.fillStyle(0xffffff, 1).fillCircle(28, 78, 8).fillCircle(39, 72, 10).fillCircle(50, 78, 8).fillRect(28, 78, 22, 8);
 
     // Corn coins and level.
@@ -989,13 +990,54 @@ export class StageScene extends Phaser.Scene {
     this.inputLocked = true;
     Sfx.clear();
     StageManager.markStageCleared(this.stage.id);
+    // ★ for clearing, ★★ for half the corn coins, ★★★ for all of them.
+    const stars = 1 + (this.coinCount >= Math.ceil(this.totalCoins / 2) ? 1 : 0) + (this.coinCount >= this.totalCoins ? 1 : 0);
+    const best = StageManager.recordStars(this.stage.id, stars);
+    const result = { stageId: this.stage.id, coins: this.coinCount, totalCoins: this.totalCoins, stars, best };
     this.dialogue.show(this.stage.clearDialogue, () => {
-      if (StageManager.isLastStage(this.stage.id)) {
-        this.scene.start('EndingScene', { stageId: this.stage.id });
-      } else {
-        this.scene.start('StageClearScene', { stageId: this.stage.id });
-      }
+      this.scene.start(StageManager.isLastStage(this.stage.id) ? 'EndingScene' : 'StageClearScene', result);
     });
+  }
+
+  // Short how-to-play banners with the same icon as the touch button.
+  private showChapterTips(): void {
+    const touch = this.sys.game.device.input.touch;
+    if (this.stage.chapter === 1) {
+      this.showTip('move', touch ? '◀ ▶ 버튼을 눌러 걸어요' : '← → 키로 걸어요');
+    } else if (this.stage.chapter === 2) {
+      this.showTip('cloud', touch ? '근두운을 배웠어요! 공중에서 점프를 한 번 더 누르면 구름을 타요' : '근두운을 배웠어요! 공중에서 ↑ 키를 한 번 더 누르면 구름을 타요', 6500);
+    }
+  }
+
+  private updateTutorialTips(): void {
+    if (this.stage.chapter !== 1) return;
+    const touch = this.sys.game.device.input.touch;
+    if (this.player.x > 380) this.showTip('jump', touch ? '점프 버튼으로 발판에 올라 코인을 모아요' : '↑ 키로 점프해서 발판 위 코인을 모아요');
+    if (this.player.x > 640) this.showTip('attack', touch ? '공격 버튼으로 까마귀를 물리쳐요' : 'Space 키로 공격해서 까마귀를 물리쳐요');
+  }
+
+  private showTip(id: 'move' | 'jump' | 'attack' | 'cloud', text: string, duration = 5000): void {
+    if (this.tipsShown.has(id)) return;
+    this.tipsShown.add(id);
+    this.tip?.destroy();
+    const label = this.add.text(30, 0, text, { ...hudText(20), wordWrap: { width: 560 } }).setOrigin(0, 0.5);
+    const width = label.width + 92;
+    const panel = this.add.graphics();
+    panel.fillStyle(0x2a1a08, 0.82).fillRoundedRect(-width / 2, -30, width, 60, 18);
+    panel.lineStyle(3, 0xffd24a, 0.9).strokeRoundedRect(-width / 2, -30, width, 60, 18);
+    label.setX(-width / 2 + 74);
+    const icon = this.add.graphics();
+    const cx = -width / 2 + 40;
+    icon.fillStyle(0xfff7dc, 1).fillCircle(cx, 0, 22).lineStyle(3, 0x6d4a00, 1).strokeCircle(cx, 0, 22);
+    icon.fillStyle(0x5a3a00, 1);
+    if (id === 'move') icon.fillTriangle(cx - 14, 0, cx - 4, -8, cx - 4, 8).fillTriangle(cx + 14, 0, cx + 4, -8, cx + 4, 8);
+    if (id === 'jump') icon.fillTriangle(cx, -12, cx - 9, 0, cx + 9, 0).fillRect(cx - 3, 0, 6, 9);
+    if (id === 'attack') icon.lineStyle(5, 0xc98a00, 1).lineBetween(cx - 10, 7, cx + 10, -9);
+    if (id === 'cloud') icon.fillStyle(0x9fd8ff, 1).fillCircle(cx - 8, 4, 7).fillCircle(cx + 1, -2, 9).fillCircle(cx + 10, 4, 7);
+    this.tip = this.add.container(GAME_WIDTH / 2, 172, [panel, icon, label]).setScrollFactor(0).setDepth(905).setAlpha(0);
+    const tip = this.tip;
+    this.tweens.add({ targets: tip, alpha: 1, y: 166, duration: 260 });
+    this.tweens.add({ targets: tip, alpha: 0, delay: duration, duration: 400, onComplete: () => tip.destroy() });
   }
 
   private restartStage(): void {
@@ -1062,8 +1104,11 @@ export class StageScene extends Phaser.Scene {
 
     if (this.boss?.active) {
       const chaseOffset = Phaser.Math.Clamp(this.boss.x - this.player.x, -520, 520);
-      if (Math.abs(chaseOffset) >= 500) {
-        this.boss.setX(this.player.x + Math.sign(chaseOffset) * 480);
+      const target = this.player.x + Math.sign(chaseOffset) * 480;
+      // Never drop the chasing boss inside a step; wait until the spot is clear.
+      const blocked = this.stage.platforms.some((platform) => platform.y >= 340 && Math.abs(target - platform.x) < platform.width / 2 + 60);
+      if (Math.abs(chaseOffset) >= 500 && !blocked) {
+        this.boss.setX(target);
       }
     }
 

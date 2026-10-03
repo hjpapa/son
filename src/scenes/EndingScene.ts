@@ -5,6 +5,7 @@ import { StageManager } from '../game/StageManager';
 import { GAME_HEIGHT, GAME_WIDTH } from '../constants';
 import { createButton } from '../ui/Button';
 import { companionTextures } from '../game/data/companions';
+import { addCoverBackground } from '../ui/background';
 
 const closingWords = '네 친구는 천축국의 불경을 고향에 전했어요. 옥수수손오공은 힘보다 책임, 혼자보다 우정이 더 크다는 것을 배웠어요.';
 
@@ -15,7 +16,7 @@ export class EndingScene extends Phaser.Scene {
 
   create(): void {
     if (this.textures.exists('background-ending')) {
-      this.add.image(0, 0, 'background-ending').setOrigin(0).setDisplaySize(GAME_WIDTH, GAME_HEIGHT);
+      addCoverBackground(this, 'background-ending');
     }
     this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0xfff4cf, 0.5).setOrigin(0);
     Sfx.clear();
