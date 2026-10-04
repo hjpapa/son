@@ -29,13 +29,13 @@ export class PreloadScene extends Phaser.Scene {
     });
 
     for (const pose of heroPoses) {
-      this.load.image(`corn-wukong-clean-${pose}`, `assets/sprites/corn-wukong-clean-${pose}.png`);
+      this.load.image(`corn-wukong-clean-${pose}`, `assets/sprites/corn-wukong-clean-${pose}.webp`);
     }
     this.load.image('background-cornfield', 'assets/backgrounds/cornfield.webp');
     for (const key of [...characterArt.travelers, ...characterArt.legends]) {
-      this.load.image(key, `assets/characters/${key}.png`);
+      this.load.image(key, `assets/characters/${key}.webp`);
     }
-    this.load.image('npc-samjang', 'assets/characters/companion-samjang.png');
+    this.load.image('npc-samjang', 'assets/characters/companion-samjang.webp');
   }
 
   create(): void {

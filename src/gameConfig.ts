@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from './constants';
+import { BestiaryScene } from './scenes/BestiaryScene';
 import { ChapterSelectScene } from './scenes/ChapterSelectScene';
 import { EndingScene } from './scenes/EndingScene';
 import { PauseScene } from './scenes/PauseScene';
@@ -35,5 +36,5 @@ export const createGameConfig = (): Phaser.Types.Core.GameConfig => ({
       debug: false
     }
   },
-  scene: [PreloadScene, TitleScene, ChapterSelectScene, StageScene, PauseScene, StageClearScene, EndingScene]
+  scene: [PreloadScene, TitleScene, ChapterSelectScene, BestiaryScene, StageScene, PauseScene, StageClearScene, EndingScene]
 });

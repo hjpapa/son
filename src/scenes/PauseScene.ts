@@ -8,13 +8,15 @@ type PauseInit = { stageId: string };
 
 export class PauseScene extends Phaser.Scene {
   private resumed = false;
+  private stageId = '';
 
   constructor() {
     super('PauseScene');
   }
 
-  create(_data: PauseInit): void {
+  create(data: PauseInit): void {
     this.resumed = false;
+    this.stageId = data.stageId;
     Music.duck(true);
     this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x120c06, 0.7).setOrigin(0).setInteractive();
     const panel = this.add.graphics();
@@ -22,22 +24,26 @@ export class PauseScene extends Phaser.Scene {
     panel.lineStyle(5, 0x8a5a1a, 1).strokeRoundedRect(GAME_WIDTH / 2 - 250, 60, 500, 420, 26);
     this.add.text(GAME_WIDTH / 2, 112, '잠깐 쉬어요', { color: '#4a2b00', fontSize: '38px', fontStyle: 'bold' }).setOrigin(0.5);
 
-    createButton(this, GAME_WIDTH / 2, 196, '계속하기 ▶', () => this.resumeGame(), { width: 320, height: 70, fontSize: 30, primary: true });
-    const sound = createButton(this, GAME_WIDTH / 2 - 112, 286, '', () => {
+    createButton(this, GAME_WIDTH / 2, 178, '계속하기 ▶', () => this.resumeGame(), { width: 320, height: 70, fontSize: 30, primary: true });
+    const sound = createButton(this, GAME_WIDTH / 2 - 112, 264, '', () => {
       Settings.sound = !Settings.sound;
       this.refreshLabels(sound, music);
     }, { width: 210, fontSize: 22 });
-    const music = createButton(this, GAME_WIDTH / 2 + 112, 286, '', () => {
+    const music = createButton(this, GAME_WIDTH / 2 + 112, 264, '', () => {
       Settings.music = !Settings.music;
       Music.refresh();
       this.refreshLabels(sound, music);
     }, { width: 210, fontSize: 22 });
     this.refreshLabels(sound, music);
-    createButton(this, GAME_WIDTH / 2, 380, '처음 화면으로', () => {
+    createButton(this, GAME_WIDTH / 2 - 112, 346, '이 장 다시 하기', () => {
+      Music.duck(false);
+      this.scene.start('StageScene', { stageId: this.stageId });
+    }, { width: 210, fontSize: 22 });
+    createButton(this, GAME_WIDTH / 2 + 112, 346, '처음 화면으로', () => {
       this.scene.stop('StageScene');
       this.scene.start('TitleScene');
-    }, { width: 280 });
-    this.add.text(GAME_WIDTH / 2, 444, '진행한 장까지는 저장되어 있어요.', { color: '#7a5a2a', fontSize: '17px', fontStyle: 'bold' }).setOrigin(0.5);
+    }, { width: 210, fontSize: 22 });
+    this.add.text(GAME_WIDTH / 2, 420, '진행한 장까지는 저장되어 있어요.', { color: '#7a5a2a', fontSize: '17px', fontStyle: 'bold' }).setOrigin(0.5);
 
     for (const key of ['ESC', 'P', 'ENTER']) {
       this.input.keyboard?.on(`keydown-${key}`, (event: KeyboardEvent) => {

@@ -24,6 +24,8 @@ async function backgrounds() {
 // 320px texture is still twice the drawn size. Huge textures also alias when
 // WebGL shrinks them without mipmaps, so smaller files look smoother too.
 const SPRITE_HEIGHT = 320;
+// Near-lossless colour with exact transparency: about a quarter of the PNG size.
+const WEBP = { quality: 90, alphaQuality: 100, effort: 6 };
 
 async function removeWhiteMatte(path) {
   const { data, info } = await sharp(path).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
@@ -59,22 +61,37 @@ async function sprites() {
   let original = 0, optimized = 0;
   await mkdir('public/assets/sprites', { recursive: true });
   const jobs = [
-    ['corn-wukong-clean-idle.png', 'corn-wukong-clean-idle.png'],
-    ['corn-wukong-clean-run.png', 'corn-wukong-clean-run.png'],
-    ['corn-wukong-clean-attack.png', 'corn-wukong-clean-attack.png'],
+    ['corn-wukong-clean-idle.png', 'corn-wukong-clean-idle.webp'],
+    ['corn-wukong-clean-run.png', 'corn-wukong-clean-run.webp'],
+    ['corn-wukong-clean-attack.png', 'corn-wukong-clean-attack.webp'],
     // The crouch drawing has a white background; cut it out once here
     // instead of flood-filling a 1254px image on every phone at startup.
-    ['corn-wukong-crouch-source.png', 'corn-wukong-clean-crouch.png', true]
+    ['corn-wukong-crouch-source.png', 'corn-wukong-clean-crouch.webp', true]
   ];
   for (const [from, to, matte] of jobs) {
     const source = `art-source/sprites/${from}`;
     const target = `public/assets/sprites/${to}`;
     const input = matte ? await removeWhiteMatte(source) : source;
-    await sharp(input).resize({ height: SPRITE_HEIGHT }).png({ compressionLevel: 9, palette: false }).toFile(target);
+    await sharp(input).resize({ height: SPRITE_HEIGHT }).webp(WEBP).toFile(target);
     original += await size(source);
     optimized += await size(target);
   }
   console.log(`Hero sprites: ${mb(original)} -> ${mb(optimized)}`);
+}
+
+// The 48 character drawings (made by `npm run art:prepare`) as WebP.
+async function characters() {
+  let original = 0, optimized = 0;
+  await mkdir('public/assets/characters', { recursive: true });
+  for (const file of await readdir('art-source/characters')) {
+    if (!file.endsWith('.png')) continue;
+    const source = `art-source/characters/${file}`;
+    const target = `public/assets/characters/${file.replace(/\.png$/, '.webp')}`;
+    await sharp(source).webp(WEBP).toFile(target);
+    original += await size(source);
+    optimized += await size(target);
+  }
+  console.log(`Characters: ${mb(original)} -> ${mb(optimized)}`);
 }
 
 async function icons() {
@@ -106,4 +123,5 @@ async function icons() {
 
 await backgrounds();
 await sprites();
+await characters();
 await icons();

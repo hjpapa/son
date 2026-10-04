@@ -14,6 +14,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   protected jumpTimer = 0;
   private pauseTimer = 0;
   private dashTimer = 0;
+  private stunnedUntil = 0;
   private healthBar?: Phaser.GameObjects.Graphics;
   private groundShadow?: Phaser.GameObjects.Ellipse;
 
@@ -79,6 +80,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.recoverIfFallen();
     this.updateHealthBar();
     this.groundShadow?.setPosition(this.x, this.y - 2);
+    // Knocked back by a hit: let the push play out before walking again.
+    if (this.scene.time.now < this.stunnedUntil) return;
 
     switch (this.enemyType) {
       case 'flyer':
@@ -96,10 +99,17 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
   }
 
-  takeHit(amount = 1): boolean {
+  takeHit(amount = 1, fromX?: number): boolean {
     this.hp -= amount;
     this.updateHealthBar();
     this.setTint(0xfff0a3);
+    this.sparkle(6);
+    if (fromX !== undefined && this.enemyType !== 'boss' && this.hp > 0) {
+      const body = this.body as Phaser.Physics.Arcade.Body;
+      body.setVelocityX((this.x >= fromX ? 1 : -1) * 230);
+      if (body.blocked.down) body.setVelocityY(-170);
+      this.stunnedUntil = this.scene.time.now + 280;
+    }
     this.scene.time.delayedCall(80, () => {
       if (this.active) {
         this.clearTint();
@@ -120,6 +130,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
 
     this.disableBody(true, true);
+    this.sparkle(12);
     this.healthBar?.destroy();
     this.groundShadow?.destroy();
     const hitText = this.scene.add
@@ -141,6 +152,26 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       ease: 'Cubic.easeOut',
       onComplete: () => hitText.destroy()
     });
+  }
+
+  // Little stars fly out where the staff lands.
+  private sparkle(count: number): void {
+    const centerY = this.y - this.displayHeight / 2;
+    for (let index = 0; index < count; index += 1) {
+      const angle = (Math.PI * 2 * index) / count + Math.random() * 0.4;
+      const spark = this.scene.add.star(this.x, centerY, 5, 3, 7, index % 2 ? 0xffffff : 0xffe04b).setDepth(51);
+      this.scene.tweens.add({
+        targets: spark,
+        x: spark.x + Math.cos(angle) * (40 + count * 3),
+        y: spark.y + Math.sin(angle) * (34 + count * 2),
+        angle: 180,
+        alpha: 0,
+        scale: 0.4,
+        duration: 380,
+        ease: 'Cubic.easeOut',
+        onComplete: () => spark.destroy()
+      });
+    }
   }
 
   protected updateWalker(player?: Player): void {

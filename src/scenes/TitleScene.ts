@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { Music } from '../audio/Music';
+import { bestiary } from '../game/data/bestiary';
 import { stages } from '../game/data/stages';
 import { Settings } from '../game/Settings';
 import { StageManager } from '../game/StageManager';
@@ -55,6 +56,15 @@ export class TitleScene extends Phaser.Scene {
       friend.setScale(96 / friend.height);
       this.tweens.add({ targets: friend, y: friend.y - 5, duration: 700 + index * 90, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
     });
+
+    // The monster book waits on the right, with a monster peeking out.
+    const peek = this.add.image(GAME_WIDTH - 150, 236, 'enemy-crow');
+    peek.setScale(64 / peek.height);
+    this.tweens.add({ targets: peek, y: peek.y - 6, angle: -6, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    const found = bestiary.filter((entry) => StageManager.getDiscovered().has(entry.key)).length;
+    createButton(this, GAME_WIDTH - 150, 300, `요괴 도감 ${found}/${bestiary.length}`, () => {
+      if (!this.confirmLayer) this.scene.start('BestiaryScene');
+    }, { width: 210, height: 56, fontSize: 21 });
 
     const cleared = StageManager.getClearedChapter();
     const status = cleared > 0
@@ -123,7 +133,7 @@ export class TitleScene extends Phaser.Scene {
     const panel = this.add.graphics();
     panel.fillStyle(0xfff3cf, 0.98).fillRoundedRect(GAME_WIDTH / 2 - 270, 130, 540, 270, 24);
     panel.lineStyle(5, 0x8a5a1a, 1).strokeRoundedRect(GAME_WIDTH / 2 - 270, 130, 540, 270, 24);
-    const question = this.add.text(GAME_WIDTH / 2, 200, '처음부터 다시 할까요?\n지금까지의 여행 기록이 지워져요.', {
+    const question = this.add.text(GAME_WIDTH / 2, 200, '처음부터 다시 할까요?\n지금까지의 여행 기록이 지워져요.\n(요괴 도감은 그대로 남아요)', {
       color: '#4a2b00', fontSize: '26px', fontStyle: 'bold', align: 'center', lineSpacing: 10
     }).setOrigin(0.5);
     const close = () => {

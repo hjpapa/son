@@ -38,6 +38,8 @@ export class DialogueBox {
   private text: Phaser.GameObjects.Text;
   private progress: Phaser.GameObjects.Text;
   private prompt: Phaser.GameObjects.Text;
+  private skipButton: Phaser.GameObjects.Text;
+  private skippable = false;
   private portrait: Phaser.GameObjects.Image;
   private lines: Page[] = [];
   private index = 0;
@@ -95,6 +97,25 @@ export class DialogueBox {
       .setVisible(false);
     scene.tweens.add({ targets: this.prompt, x: '+=6', duration: 420, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
 
+    // Only offered when replaying a chapter, so the story is always seen once.
+    this.skipButton = scene.add
+      .text(GAME_WIDTH - 44, PANEL_TOP - 20, '건너뛰기 ▶▶', {
+        color: '#3b2100',
+        fontSize: '19px',
+        fontStyle: 'bold',
+        backgroundColor: '#fff3cf',
+        padding: { x: 12, y: 6 }
+      })
+      .setOrigin(1, 0)
+      .setScrollFactor(0)
+      .setDepth(2003)
+      .setVisible(false)
+      .setInteractive({ useHandCursor: true });
+    this.skipButton.on('pointerdown', (_pointer: Phaser.Input.Pointer, _x: number, _y: number, event: Phaser.Types.Input.EventData) => {
+      event.stopPropagation(); // not also a "next page" tap
+      if (this.visible) this.close();
+    });
+
     scene.input.on('pointerdown', this.advance, this);
     scene.input.keyboard?.on('keydown-ENTER', this.onKey, this);
     scene.input.keyboard?.on('keydown-SPACE', this.onKey, this);
@@ -103,6 +124,10 @@ export class DialogueBox {
 
   get isOpen(): boolean {
     return this.visible;
+  }
+
+  setSkippable(skippable: boolean): void {
+    this.skippable = skippable;
   }
 
   get panelBottom(): number {
@@ -117,6 +142,7 @@ export class DialogueBox {
     this.onComplete = onComplete;
     this.visible = true;
     for (const item of [this.panel, this.nameTag, this.text, this.progress, this.portrait]) item.setVisible(true);
+    this.skipButton.setVisible(this.skippable);
     this.renderLine();
     this.canAdvanceAt = this.scene.time.now + OPEN_GUARD_MS;
   }
@@ -199,7 +225,7 @@ export class DialogueBox {
     this.typing = undefined;
     if (this.resumePhysics) this.scene.physics.world.resume();
     this.resumePhysics = false;
-    for (const item of [this.panel, this.nameTag, this.text, this.progress, this.prompt, this.portrait]) item.setVisible(false);
+    for (const item of [this.panel, this.nameTag, this.text, this.progress, this.prompt, this.portrait, this.skipButton]) item.setVisible(false);
     const complete = this.onComplete;
     this.onComplete = undefined;
     complete?.();

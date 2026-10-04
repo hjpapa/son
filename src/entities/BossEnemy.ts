@@ -91,8 +91,9 @@ export class BossEnemy extends Enemy {
     }
   }
 
-  override takeHit(amount = 1): boolean {
-    const defeated = super.takeHit(amount);
+  override takeHit(amount = 1, fromX?: number): boolean {
+    const defeated = super.takeHit(amount, fromX);
+    this.scene.cameras.main.shake(90, 0.004);
     if (defeated) this.defeatedCallback?.();
     return defeated;
   }

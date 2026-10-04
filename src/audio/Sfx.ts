@@ -44,6 +44,7 @@ export const Sfx = {
   heal: () => melody([523, 659, 784], 0.07, 'sine', 0.35),
   levelUp: () => melody([523, 587, 659, 784, 880, 1047], 0.075),
   reward: () => melody([587, 784, 880, 1175], 0.11),
+  discover: () => melody([784, 988, 1319], 0.09, 'sine', 0.4),
   clear: () => melody([523, 587, 659, 784, 880, 784, 1047], 0.12),
   // A soft gong opens every chapter, like turning the page of a storybook.
   gong: () => {

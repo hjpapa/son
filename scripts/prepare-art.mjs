@@ -2,7 +2,7 @@ import sharp from 'sharp';
 import { mkdir, readFile } from 'node:fs/promises';
 
 const manifest = JSON.parse(await readFile('src/game/data/character-art.json', 'utf8'));
-await mkdir('public/assets/characters', { recursive: true });
+await mkdir('art-source/characters', { recursive: true });
 
 // The generated sheets have irregular gutters. Segment connected silhouettes
 // before assigning them to cells, so feet, tails and weapons are never clipped.
@@ -74,7 +74,7 @@ for (const [name, columns, rows] of [['travelers', 6, 6], ['legends', 3, 4]]) {
     await sharp(pixels, { raw: { width: w, height: h, channels: 4 } })
       .resize(176, 176, { fit: 'contain', background: '#00000000' })
       .extend({ top: 8, bottom: 8, left: 8, right: 8, background: '#00000000' })
-      .png().toFile(`public/assets/characters/${key}.png`);
+      .png().toFile(`art-source/characters/${key}.png`);
   }
 }
 console.log('Prepared 48 complete transparent character silhouettes.');

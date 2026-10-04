@@ -575,3 +575,116 @@ test.describe('long phone', () => {
     expect(size.canvas).toBeGreaterThan(830);
   });
 });
+
+// Real physics and input only: hold right, jump when blocked or an enemy is
+// close, keep swinging. Checks the terrain never traps a player.
+test('a simple walk-and-jump bot can cross every chapter without teleporting @slow', async ({ page }) => {
+  test.setTimeout(480000);
+  for (let chapter = 1; chapter <= 12; chapter++) {
+    await openStage(page, chapter);
+    await dismiss(page);
+    const target = await page.evaluate(() => {
+      const s = (window as any).__GAME__.scene.getScene('StageScene');
+      s.player.takeDamage = () => false;
+      let frame = 0;
+      s.readInput = () => {
+        frame += 1;
+        const body = s.player.body;
+        const enemyAhead = s.enemies.getChildren().some((e: any) => e.active && e.x > s.player.x && e.x - s.player.x < 170 && Math.abs(e.y - s.player.y) < 140);
+        const wantsJump = body.blocked.right || body.touching.right || enemyAhead;
+        return { left: false, right: true, down: false, jump: wantsJump && frame % 16 < 8, attack: frame % 14 < 2 };
+      };
+      const stage = s.stage;
+      return stage.boss && stage.clearMode !== 'survive' ? stage.boss.x - 250 : (stage.npc?.x ?? stage.goalX) - 100;
+    });
+    const deadline = Date.now() + 50000;
+    for (;;) {
+      const state = await page.evaluate(() => {
+        const s = (window as any).__GAME__.scene.getScene('StageScene');
+        return { x: s.player.x, open: s.dialogue.isOpen, active: s.scene.isActive() };
+      });
+      if (!state.active || state.x >= target) break;
+      if (state.open) await page.keyboard.press('Enter');
+      if (Date.now() > deadline) throw new Error(`chapter ${chapter}: stuck at x=${Math.round(state.x)}, target ${Math.round(target)}`);
+      await page.waitForTimeout(150);
+    }
+  }
+});
+
+test('defeating a monster adds it to the monster book, which pages by chapter', async ({ page }) => {
+  await openStage(page, 1);
+  await dismiss(page);
+  const result = await page.evaluate(async () => {
+    const { StageManager } = await import('/src/game/StageManager.ts');
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    const crow = s.enemies.getChildren().find((enemy: any) => enemy.texture.key === 'enemy-crow');
+    crow.hp = 1;
+    s.hitEnemy(crow);
+    return { discovered: StageManager.getDiscovered().has('enemy-crow'), toast: Boolean(s.discoveryToast?.active) };
+  });
+  expect(result).toEqual({ discovered: true, toast: true });
+
+  await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').scene.start('BestiaryScene'));
+  await page.waitForFunction(() => (window as any).__GAME__.scene.isActive('BestiaryScene'));
+  const texts = () => page.evaluate(() => (window as any).__GAME__.scene.getScene('BestiaryScene').pageLayer.list
+    .filter((item: any) => item.type === 'Text').map((item: any) => item.text));
+  const first = await texts();
+  expect(first).toContain('장난 까마귀');
+  expect(first.filter((text: string) => text === '???')).toHaveLength(2);
+  await page.keyboard.press('ArrowRight');
+  expect((await texts())[0]).toBe('제 2장 · 혼세마왕의 동굴');
+});
+
+test('a hit knocks a monster back briefly; the progress bar follows the hero to the goal', async ({ page }) => {
+  await openStage(page, 2);
+  await dismiss(page);
+  const hit = await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    const target = s.enemies.getChildren().find((enemy: any) => enemy.enemyType !== 'boss');
+    target.hp = 5;
+    target.x = s.player.x + 60;
+    target.takeHit(1, s.player.x);
+    return { pushedAway: target.body.velocity.x > 0, stunned: target.stunnedUntil > s.time.now };
+  });
+  expect(hit).toEqual({ pushedAway: true, stunned: true });
+
+  const start = await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').progressHero.x);
+  await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    s.storyBeatsSeen = new Set(['trail', 'encounter']);
+    s.player.takeDamage = () => false;
+    s.player.body.reset(s.stage.goalX - 300, 432);
+  });
+  await expect.poll(() => page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').progressHero.x)).toBeGreaterThan(start + 200);
+});
+
+test('pause menu restarts the chapter; replayed chapters offer a skip button for dialogue', async ({ page }) => {
+  await openStage(page, 2);
+  expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').dialogue.skipButton.visible)).toBe(false);
+  await dismiss(page);
+  await page.evaluate(async () => {
+    const { StageManager } = await import('/src/game/StageManager.ts');
+    StageManager.recordStars('stage-02', 1); // as if cleared before
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    s.coinCount = 4;
+  });
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => (window as any).__GAME__.scene.isActive('PauseScene'));
+  await page.evaluate(() => {
+    const pause = (window as any).__GAME__.scene.getScene('PauseScene');
+    const restart = pause.children.list.find((item: any) => item.getData?.('label')?.text === '이 장 다시 하기');
+    restart.emit('pointerup');
+  });
+  await page.waitForFunction(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    return s.scene.isActive() && s.dialogue?.isOpen && !(window as any).__GAME__.scene.isActive('PauseScene');
+  });
+  const restarted = await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    const skip = s.dialogue.skipButton;
+    const visible = skip.visible;
+    skip.emit('pointerdown', s.input.activePointer, 0, 0, { stopPropagation() {} });
+    return { coins: s.coinCount, visible, closed: !s.dialogue.isOpen };
+  });
+  expect(restarted).toEqual({ coins: 0, visible: true, closed: true });
+});

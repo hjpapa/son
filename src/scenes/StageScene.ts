@@ -5,6 +5,7 @@ import { BossEnemy } from '../entities/BossEnemy';
 import { Enemy } from '../entities/Enemy';
 import { EnemyFactory } from '../entities/EnemyFactory';
 import { Player } from '../entities/Player';
+import { bestiaryEntry } from '../game/data/bestiary';
 import { coinSpots, getStage, type StageBackgroundKey, type StageData, type StageHazard } from '../game/data/stages';
 import { chapterStories } from '../game/data/story';
 import { josa } from '../game/korean';
@@ -53,6 +54,7 @@ const palettes: Record<StageBackgroundKey, BackgroundPalette> = {
 const REQUIRED_COINS = 5;
 const TALISMANS_PER_TRY = 2;
 const BOSS_BAR_RANGE = 760;
+const PROGRESS_WIDTH = 260;
 
 const hudText = (size: number, color = '#fff8d6'): Phaser.Types.GameObjects.Text.TextStyle => ({
   color,
@@ -88,6 +90,8 @@ export class StageScene extends Phaser.Scene {
   private coinText!: Phaser.GameObjects.Text;
   private levelText!: Phaser.GameObjects.Text;
   private bossBar?: Phaser.GameObjects.Graphics;
+  private progressBar!: Phaser.GameObjects.Graphics;
+  private progressHero!: Phaser.GameObjects.Image;
   private bossBarName?: Phaser.GameObjects.Text;
   private exitGate?: Phaser.GameObjects.Rectangle;
   private exitHint?: Phaser.GameObjects.Text;
@@ -108,6 +112,7 @@ export class StageScene extends Phaser.Scene {
   private totalCoins = 0;
   private companions: string[] = [];
   private tip?: Phaser.GameObjects.Container;
+  private discoveryToast?: Phaser.GameObjects.Container;
   private tipsShown = new Set<string>();
 
   constructor() {
@@ -174,6 +179,7 @@ export class StageScene extends Phaser.Scene {
     this.createUi();
 
     this.dialogue = new DialogueBox(this);
+    this.dialogue.setSkippable(StageManager.getStars(this.stage.id) > 0);
     this.game.events.on(Phaser.Core.Events.HIDDEN, this.pauseForBackground, this);
     this.game.events.on('request-pause', this.pauseForBackground, this);
     Music.play(this.stage.musicKey);
@@ -224,6 +230,7 @@ export class StageScene extends Phaser.Scene {
     this.checkAttackHits();
     this.updateSurviveStage(delta);
     this.updateBossBar();
+    this.updateProgressBar();
   }
 
   // A storybook title page with a soft gong opens every chapter.
@@ -661,12 +668,47 @@ export class StageScene extends Phaser.Scene {
     this.levelText = this.add.text(GAME_WIDTH - 212, 52, '', hudText(17, '#d9ffb3')).setScrollFactor(0).setDepth(902);
 
     this.createPauseButton();
+    this.createProgressBar();
     this.bossBar = this.add.graphics().setScrollFactor(0).setDepth(901);
     if (this.stage.boss) {
-      this.bossBarName = this.add.text(GAME_WIDTH / 2, 92, this.stage.boss.name, hudText(18, '#ffd6c9')).setOrigin(0.5, 0).setScrollFactor(0).setDepth(902).setVisible(false);
+      this.bossBarName = this.add.text(GAME_WIDTH / 2, 102, this.stage.boss.name, hudText(18, '#ffd6c9')).setOrigin(0.5, 0).setScrollFactor(0).setDepth(902).setVisible(false);
     }
     this.createSurviveTimerUi();
     this.updateUi();
+  }
+
+  // How far is left: the hero's face travels along a road to the chapter's
+  // goal flag, with the boss marked where it waits.
+  private createProgressBar(): void {
+    const left = GAME_WIDTH / 2 - PROGRESS_WIDTH / 2;
+    const y = 86;
+    this.progressBar = this.add.graphics().setScrollFactor(0).setDepth(901);
+    const flag = this.add.graphics().setScrollFactor(0).setDepth(902);
+    flag.fillStyle(0x6e4300, 1).fillRect(left + PROGRESS_WIDTH + 6, y - 12, 3, 20);
+    flag.fillStyle(0xe8453c, 1).fillTriangle(left + PROGRESS_WIDTH + 9, y - 12, left + PROGRESS_WIDTH + 24, y - 7, left + PROGRESS_WIDTH + 9, y - 2);
+    if (this.stage.boss && this.stage.clearMode !== 'survive') {
+      const bossIcon = this.add.image(left + PROGRESS_WIDTH * this.progressRatio(this.stage.boss.x), y, this.stage.boss.spriteKey).setScrollFactor(0).setDepth(902);
+      bossIcon.setScale(24 / bossIcon.height);
+    }
+    this.progressHero = this.add.image(left, y, 'corn-wukong-clean-idle').setScrollFactor(0).setDepth(903);
+    this.progressHero.setScale(26 / this.progressHero.height);
+    this.updateProgressBar();
+  }
+
+  private progressRatio(x: number): number {
+    const start = this.stage.playerStart.x;
+    const end = this.stage.npc?.x ?? this.stage.reward?.x ?? this.stage.goalX;
+    return Phaser.Math.Clamp((x - start) / (end - start), 0, 1);
+  }
+
+  private updateProgressBar(): void {
+    const left = GAME_WIDTH / 2 - PROGRESS_WIDTH / 2;
+    const y = 86;
+    const ratio = this.progressRatio(this.player.x);
+    this.progressBar.clear();
+    this.progressBar.fillStyle(0x2a1a08, 0.7).fillRoundedRect(left - 4, y - 5, PROGRESS_WIDTH + 8, 10, 5);
+    this.progressBar.fillStyle(0xffd24a, 1).fillRoundedRect(left - 2, y - 3, Math.max(4, PROGRESS_WIDTH * ratio + 4), 6, 3);
+    this.progressHero.setX(left + PROGRESS_WIDTH * ratio);
   }
 
   private createPauseButton(): void {
@@ -691,7 +733,7 @@ export class StageScene extends Phaser.Scene {
     const seconds = this.stage.gimmicks.find((gimmick) => gimmick.type === 'surviveRun')?.value ?? 35;
     this.surviveRemainingMs = seconds * 1000;
     this.surviveTimerText = this.add
-      .text(GAME_WIDTH / 2, 134, '', {
+      .text(GAME_WIDTH / 2, 156, '', {
         color: '#ffffff',
         fontSize: '24px',
         fontStyle: 'bold',
@@ -758,7 +800,7 @@ export class StageScene extends Phaser.Scene {
 
     const width = 360;
     const x = (GAME_WIDTH - width) / 2;
-    const y = 118;
+    const y = 128;
     this.bossBar.fillStyle(0x23160a, 0.85);
     this.bossBar.fillRoundedRect(x, y, width, 18, 6);
     this.bossBar.fillStyle(0xe74b3c, 1);
@@ -809,9 +851,10 @@ export class StageScene extends Phaser.Scene {
     if (this.hitThisSwing.has(enemy)) return;
     this.hitThisSwing.add(enemy);
     Sfx.hit();
-    const defeated = enemy.takeHit(StageManager.getAttackDamage());
+    const defeated = enemy.takeHit(StageManager.getAttackDamage(), this.player.x);
     if (defeated) {
       this.gainExperience(enemy.enemyType === 'boss' ? 5 : 2);
+      this.showDiscovery(enemy.texture.key);
     }
   }
 
@@ -990,6 +1033,8 @@ export class StageScene extends Phaser.Scene {
     this.inputLocked = true;
     Sfx.clear();
     StageManager.markStageCleared(this.stage.id);
+    // Surviving the chase also counts as meeting its boss.
+    if (this.stage.boss) this.showDiscovery(this.stage.boss.spriteKey);
     // ★ for clearing, ★★ for half the corn coins, ★★★ for all of them.
     const stars = 1 + (this.coinCount >= Math.ceil(this.totalCoins / 2) ? 1 : 0) + (this.coinCount >= this.totalCoins ? 1 : 0);
     const best = StageManager.recordStars(this.stage.id, stars);
@@ -997,6 +1042,25 @@ export class StageScene extends Phaser.Scene {
     this.dialogue.show(this.stage.clearDialogue, () => {
       this.scene.start(StageManager.isLastStage(this.stage.id) ? 'EndingScene' : 'StageClearScene', result);
     });
+  }
+
+  // "New in the monster book!" slides in at the top right the first time.
+  private showDiscovery(key: string): void {
+    const entry = bestiaryEntry(key);
+    if (!entry || !StageManager.recordDiscovery(key)) return;
+    Sfx.discover();
+    this.discoveryToast?.destroy();
+    const panel = this.add.graphics();
+    panel.fillStyle(0x2a1a08, 0.88).fillRoundedRect(-262, 0, 262, 66, 16);
+    panel.lineStyle(3, 0xffd24a, 1).strokeRoundedRect(-262, 0, 262, 66, 16);
+    const picture = this.add.image(-226, 33, key);
+    picture.setScale(54 / picture.height);
+    const heading = this.add.text(-190, 10, '요괴 도감에 새로 등록!', { color: '#ffd75e', fontSize: '15px', fontStyle: 'bold' });
+    const name = this.add.text(-190, 30, entry.name, { color: '#ffffff', fontSize: '21px', fontStyle: 'bold' });
+    const toast = this.add.container(GAME_WIDTH + 280, 92, [panel, picture, heading, name]).setScrollFactor(0).setDepth(906);
+    this.discoveryToast = toast;
+    this.tweens.add({ targets: toast, x: GAME_WIDTH - 12, duration: 320, ease: 'Back.easeOut' });
+    this.tweens.add({ targets: toast, x: GAME_WIDTH + 280, delay: 2600, duration: 300, ease: 'Quad.easeIn', onComplete: () => toast.destroy() });
   }
 
   // Short how-to-play banners with the same icon as the touch button.
@@ -1034,9 +1098,9 @@ export class StageScene extends Phaser.Scene {
     if (id === 'jump') icon.fillTriangle(cx, -12, cx - 9, 0, cx + 9, 0).fillRect(cx - 3, 0, 6, 9);
     if (id === 'attack') icon.lineStyle(5, 0xc98a00, 1).lineBetween(cx - 10, 7, cx + 10, -9);
     if (id === 'cloud') icon.fillStyle(0x9fd8ff, 1).fillCircle(cx - 8, 4, 7).fillCircle(cx + 1, -2, 9).fillCircle(cx + 10, 4, 7);
-    this.tip = this.add.container(GAME_WIDTH / 2, 172, [panel, icon, label]).setScrollFactor(0).setDepth(905).setAlpha(0);
+    this.tip = this.add.container(GAME_WIDTH / 2, 206, [panel, icon, label]).setScrollFactor(0).setDepth(905).setAlpha(0);
     const tip = this.tip;
-    this.tweens.add({ targets: tip, alpha: 1, y: 166, duration: 260 });
+    this.tweens.add({ targets: tip, alpha: 1, y: 200, duration: 260 });
     this.tweens.add({ targets: tip, alpha: 0, delay: duration, duration: 400, onComplete: () => tip.destroy() });
   }
 

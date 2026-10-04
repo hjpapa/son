@@ -7,6 +7,8 @@ const companionsKey = 'corn-wukong-companions';
 const levelKey = 'corn-wukong-level';
 const experienceKey = 'corn-wukong-experience';
 const starsKey = 'corn-wukong-stars';
+// The monster book is a collection: it is kept when a new journey starts.
+const bestiaryKey = 'corn-wukong-bestiary';
 const maxLevel = 10;
 
 export type LevelProgress = {
@@ -199,6 +201,24 @@ export class StageManager {
     } catch {
       return {};
     }
+  }
+
+  static getDiscovered(): Set<string> {
+    try {
+      const stored = JSON.parse(this.read(bestiaryKey) ?? '[]');
+      return new Set(Array.isArray(stored) ? stored.filter((item): item is string => typeof item === 'string') : []);
+    } catch {
+      return new Set();
+    }
+  }
+
+  // Returns true the first time a monster is added to the book.
+  static recordDiscovery(key: string): boolean {
+    const discovered = this.getDiscovered();
+    if (discovered.has(key)) return false;
+    discovered.add(key);
+    this.write(bestiaryKey, JSON.stringify([...discovered]));
+    return true;
   }
 
   static getClearedChapter(): number {

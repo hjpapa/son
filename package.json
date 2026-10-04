@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
-    "test": "playwright test",
+    "test": "playwright test --grep-invert @slow",
+    "test:full": "playwright test",
     "art:prepare": "node scripts/prepare-art.mjs",
     "art:optimize": "node scripts/optimize-assets.mjs",
     "preview": "vite preview --host 0.0.0.0"
