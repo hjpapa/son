@@ -20,6 +20,8 @@ import { addCoverBackground } from '../ui/background';
 import { bakedImage, bakeTexture } from '../ui/bake';
 import { addStageScenery, platformTexture } from '../ui/StageScenery';
 import { ArcadeChallenges, type ArcadeState } from '../game/ArcadeChallenges';
+import { CompanionSkills, type CompanionSkillState } from '../game/CompanionSkills';
+import { companionSkills } from '../game/data/companions';
 
 // Progress kept when a chapter restarts after the last talisman is used, so
 // a young player continues near where they fell instead of from the start.
@@ -28,6 +30,7 @@ export type RetryState = {
   seenBeats: string[];
   collectedCoins: number[];
   arcade?: ArcadeState;
+  skills?: CompanionSkillState;
 };
 
 type StageSceneInit = {
@@ -74,6 +77,7 @@ export class StageScene extends Phaser.Scene {
   private retry?: RetryState;
   private player!: Player;
   private arcade!: ArcadeChallenges;
+  private companionAbilities!: CompanionSkills;
   private arcadeToast?: Phaser.GameObjects.Text;
   private playerPlatforms!: Phaser.Physics.Arcade.Collider;
   private hazardPulseMs = 0;
@@ -204,6 +208,13 @@ export class StageScene extends Phaser.Scene {
       flight: on => { this.playerPlatforms.active = !on; }
     }, this.retry?.arcade);
 
+    this.companionAbilities = new CompanionSkills(this, this.player, this.companions, this.companionSprites, this.enemies, {
+      allowed: () => !this.inputLocked && !this.dialogue?.isOpen && !this.stageCleared && this.player.active && !this.physics.world.isPaused && this.scene.isActive(),
+      changed: () => this.updateUi(),
+      defeated: enemy => { this.gainExperience(enemy.enemyType === 'boss' ? 5 : 2); this.showDiscovery(enemy.texture.key); },
+      say: lines => { this.companionSay(lines); }
+    }, this.retry?.skills);
+
     this.dialogue = new DialogueBox(this);
     this.dialogue.setSkippable(StageManager.getStars(this.stage.id) > 0);
     this.game.events.on(Phaser.Core.Events.HIDDEN, this.pauseForBackground, this);
@@ -238,7 +249,8 @@ export class StageScene extends Phaser.Scene {
     }
     PlayTime.add(delta);
 
-    const gameplayPaused = this.inputLocked || this.dialogue.isOpen;
+    const gameplayPaused = this.inputLocked || this.dialogue.isOpen || this.stageCleared;
+    this.companionAbilities.update(delta, gameplayPaused);
     if (gameplayPaused) this.mobileControls.reset();
     else this.applyGimmicks(delta);
     const input = gameplayPaused ? this.emptyInput() : this.readInput();
@@ -391,6 +403,7 @@ export class StageScene extends Phaser.Scene {
     const body = this.player.body as Phaser.Physics.Arcade.Body;
     const trailDirection = body.velocity.x < -5 ? 1 : -1;
     this.companionSprites.forEach((companion, index) => {
+      if (this.companionAbilities?.isCasting(this.companions[index])) return;
       const targetX = this.player.x + trailDirection * (54 + index * 48);
       companion.x = Phaser.Math.Linear(companion.x, targetX, 0.08);
       companion.y = Phaser.Math.Linear(companion.y, this.player.y, 0.12);
@@ -538,6 +551,7 @@ export class StageScene extends Phaser.Scene {
   }
 
   private handleHazardHit(hazard: StageHazard): void {
+    if (hazard.type === 'water' && this.companionAbilities.waterGuard) return;
     if (this.stageCleared || this.inputLocked || this.dialogue.isOpen || this.time.now < this.hazardHitReadyAt) {
       return;
     }
@@ -735,10 +749,6 @@ export class StageScene extends Phaser.Scene {
     this.add.image(0, 0, 'hud-layer').setOrigin(0).setScrollFactor(0).setDepth(900);
 
     this.talismanText = this.add.text(60, 63, '', hudText(19)).setScrollFactor(0).setDepth(902);
-    this.companions.forEach((name, index) => {
-      const face = this.add.image(150 + index * 40, 74, companionTextures[name]).setScrollFactor(0).setDepth(902);
-      face.setScale(38 / face.height);
-    });
 
     this.add
       .text(GAME_WIDTH / 2, 12, `제 ${this.stage.chapter}장 · ${this.stage.title}`, hudText(23, '#fff3b0'))
@@ -869,8 +879,8 @@ export class StageScene extends Phaser.Scene {
       g.fillCircle(cx - 5, cy - 3, 6).fillCircle(cx + 5, cy - 3, 6).fillTriangle(cx - 11, cy - 1, cx + 11, cy - 1, cx, cy + 10);
     }
 
-    // Cloud talismans (extra lives) and the faces of companions who joined.
-    g.fillStyle(0x2a1a08, 0.55).fillRoundedRect(10, 56, 120 + this.companions.length * 40, 38, 12);
+    // Cloud talismans (extra lives); companion skill cards sit below them.
+    g.fillStyle(0x2a1a08, 0.55).fillRoundedRect(10, 56, 120, 38, 12);
     g.fillStyle(0xffffff, 1).fillCircle(28, 78, 8).fillCircle(39, 72, 10).fillCircle(50, 78, 8).fillRect(28, 78, 22, 8);
 
     // Corn coins and level.
@@ -1195,6 +1205,9 @@ export class StageScene extends Phaser.Scene {
       this.showTip('move', touch ? '◀ ▶ 버튼을 눌러 걸어요' : '← → 키로 걸어요');
     } else if (this.stage.chapter === 2) {
       this.showTip('cloud', touch ? '근두운을 배웠어요! 공중에서 점프를 한 번 더 누르면 구름을 타요' : '근두운을 배웠어요! 공중에서 ↑ 키를 한 번 더 누르면 구름을 타요', 6500);
+    } else if (this.stage.chapter >= 6 && this.stage.chapter <= 8) {
+      const name = this.companions[this.companions.length - 1];
+      if (name) this.showTip('friend', `${name}: ${companionSkills[name].description}\n${touch ? '왼쪽 동료 얼굴을 눌러 호출해요' : '왼쪽 동료 얼굴 또는 숫자 1·2·3 키로 호출해요'}`, 6500);
     }
   }
 
@@ -1205,7 +1218,7 @@ export class StageScene extends Phaser.Scene {
     if (this.player.x > 640) this.showTip('attack', touch ? '공격 버튼으로 까마귀를 물리쳐요' : 'Space 키로 공격해서 까마귀를 물리쳐요');
   }
 
-  private showTip(id: 'move' | 'jump' | 'attack' | 'cloud', text: string, duration = 5000): void {
+  private showTip(id: 'move' | 'jump' | 'attack' | 'cloud' | 'friend', text: string, duration = 5000): void {
     if (this.tipsShown.has(id)) return;
     this.tipsShown.add(id);
     this.tip?.destroy();
@@ -1222,6 +1235,7 @@ export class StageScene extends Phaser.Scene {
       if (id === 'jump') g.fillTriangle(cx, -12, cx - 9, 0, cx + 9, 0).fillRect(cx - 3, 0, 6, 9);
       if (id === 'attack') g.lineStyle(5, 0xc98a00, 1).lineBetween(cx - 10, 7, cx + 10, -9);
       if (id === 'cloud') g.fillStyle(0x9fd8ff, 1).fillCircle(cx - 8, 4, 7).fillCircle(cx + 1, -2, 9).fillCircle(cx + 10, 4, 7);
+      if (id === 'friend') g.fillStyle(0xffd66c, 1).fillCircle(cx - 7, -4, 6).fillCircle(cx + 7, -4, 6).fillRoundedRect(cx - 16, 3, 32, 12, 5);
     });
     this.tip = this.add.container(GAME_WIDTH / 2, 206, [panel, label]).setScrollFactor(0).setDepth(905).setAlpha(0);
     const tip = this.tip;
@@ -1249,22 +1263,25 @@ export class StageScene extends Phaser.Scene {
       checkpointX: this.checkpointX,
       seenBeats: [...this.storyBeatsSeen],
       collectedCoins: [...this.collectedCoins],
-      arcade: this.arcade.state
+      arcade: this.arcade.state,
+      skills: this.companionAbilities.state
     };
     this.time.delayedCall(1500, () => this.scene.restart({ stageId: this.stage.id, retry }));
   }
 
   private applyGimmicks(delta: number): void {
+    const body = this.player.body as Phaser.Physics.Arcade.Body;
+    const playerBounds = new Phaser.Geom.Rectangle(body.x, body.y, body.width, body.height);
     const mudZone = this.hazardZones.find(({ data, zone }) => {
-      return data.type === 'mud' && Math.abs(this.player.x - zone.x) <= zone.width / 2 && Math.abs(this.player.y - zone.y) <= zone.height / 2;
+      return data.type === 'mud' && Phaser.Geom.Intersects.RectangleToRectangle(playerBounds, zone.getBounds());
     });
-    this.player.setMovementMultiplier(mudZone ? mudZone.data.value ?? 0.65 : 1);
+    this.player.setMovementMultiplier(mudZone && !this.companionAbilities.waterGuard ? mudZone.data.value ?? 0.65 : 1);
 
     const wind = this.stage.gimmicks.find((gimmick) => gimmick.type === 'windPush');
     const windZone = this.hazardZones.find(({ data, zone }) => {
-      return data.type === 'wind' && Math.abs(this.player.x - zone.x) <= zone.width / 2 && Math.abs(this.player.y - zone.y) <= zone.height / 2;
+      return data.type === 'wind' && Phaser.Geom.Intersects.RectangleToRectangle(playerBounds, zone.getBounds());
     });
-    if (!wind || !windZone || this.inputLocked) {
+    if (!wind || !windZone || this.inputLocked || this.companionAbilities.waterGuard) {
       this.windTimer = 0;
       return;
     }

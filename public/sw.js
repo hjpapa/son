@@ -1,7 +1,7 @@
 // Offline support for classroom tablets and spotty connections.
 // Pages: network first, so a new version is picked up as soon as possible.
 // Files: served from the cache at once and refreshed in the background.
-const CACHE = 'corn-wukong-v3';
+const CACHE = 'corn-wukong-v4';
 
 self.addEventListener('install', () => {
   self.skipWaiting();

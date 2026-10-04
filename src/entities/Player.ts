@@ -29,6 +29,11 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private cloudJumpUnlocked = false;
   private cloudJumpUsed = false;
   private cloudRide = false;
+  private companionShield = false;
+  private companionGuardUntil = 0;
+
+  get hasCompanionShield(): boolean { return this.companionShield; }
+  setCompanionShield(enabled: boolean): void { this.companionShield = enabled; }
 
   constructor(scene: Phaser.Scene, x: number, y: number, maxHealth = 6) {
     super(scene, x, y, 'corn-wukong-clean-idle');
@@ -274,7 +279,14 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   }
 
   takeDamage(amount = 1): boolean {
-    if (this.invulnerable || this.currentHealth <= 0) {
+    if (this.invulnerable || this.currentHealth <= 0 || this.scene.time.now < this.companionGuardUntil) {
+      return false;
+    }
+
+    if (this.companionShield) {
+      this.companionShield = false;
+      this.companionGuardUntil = this.scene.time.now + 650;
+      Sfx.cloud();
       return false;
     }
 

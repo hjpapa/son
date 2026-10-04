@@ -6,7 +6,7 @@ import { PlayTime } from '../game/playTime';
 import { StageManager } from '../game/StageManager';
 import { GAME_HEIGHT, GAME_WIDTH } from '../constants';
 import { createButton } from '../ui/Button';
-import { companionTextures } from '../game/data/companions';
+import { companionTextures, companionSkills } from '../game/data/companions';
 import { addCoverBackground } from '../ui/background';
 import { bakedImage } from '../ui/bake';
 import { starTexture } from '../ui/stars';
@@ -75,6 +75,9 @@ export class StageClearScene extends Phaser.Scene {
       this.add.text(GAME_WIDTH / 2 - 108, 380, `새 동료 합류: ${stage.companionUnlock}!`, {
         color: '#8a2f24', fontSize: '24px', fontStyle: 'bold'
       }).setOrigin(0, 0.5);
+      this.add.text(GAME_WIDTH / 2, 415, companionSkills[stage.companionUnlock].description, {
+        color: '#5b3900', fontSize: '17px', fontStyle: 'bold'
+      }).setOrigin(0.5);
     }
 
     let ready = false;

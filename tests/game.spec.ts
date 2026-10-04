@@ -17,6 +17,164 @@ async function dismiss(page: Page) {
   throw new Error('Dialogue did not finish');
 }
 
+async function openPartyStage(page: Page, chapter = 10) {
+  await openStage(page, chapter);
+  await page.evaluate(async (chapter) => {
+    const { StageManager } = await import('/src/game/StageManager.ts');
+    StageManager.markStageCleared('stage-07');
+    (window as any).__GAME__.scene.getScene('StageScene').scene.restart({ stageId: `stage-${String(chapter).padStart(2, '0')}` });
+  }, chapter);
+  await page.waitForFunction(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    return s.companions.length === 3 && s.dialogue?.isOpen;
+  });
+  await dismiss(page);
+  await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    s.storyBeatsSeen = new Set(['trail', 'encounter']);
+    s.player.body.reset(300, 432);
+  });
+}
+
+test('companion skills: Samjang heals, blocks one hit and freezes recharge during dialogue', async ({ page }) => {
+  await openPartyStage(page);
+  await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    s.player.currentHealth = 2;
+  });
+  await page.keyboard.press('1');
+  await expect.poll(() => page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').player.health)).toBe(4);
+  const guarded = await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    const blocked = s.player.takeDamage(1);
+    const contactAgain = s.player.takeDamage(1);
+    return { blocked, contactAgain, health: s.player.health, shield: s.player.hasCompanionShield, repeat: s.companionAbilities.activate('삼장법사') };
+  });
+  expect(guarded).toEqual({ blocked: false, contactAgain: false, health: 4, shield: false, repeat: false });
+  await page.waitForTimeout(800);
+  expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').player.takeDamage(1))).toBe(true);
+  const frozen = await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    s.dialogue.show(['삼장법사: 잠깐 이야기를 나누자.']);
+    return s.companionAbilities.state.cooldowns['삼장법사'];
+  });
+  await page.keyboard.press('3');
+  await page.waitForTimeout(700);
+  expect(await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    return { cooldown: s.companionAbilities.state.cooldowns['삼장법사'], tide: s.companionAbilities.waterGuard };
+  })).toEqual({ cooldown: frozen, tide: false });
+  await dismiss(page);
+  await page.waitForTimeout(250);
+  expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').companionAbilities.state.cooldowns['삼장법사'])).toBeLessThan(frozen);
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => (window as any).__GAME__.scene.isActive('PauseScene'));
+  const pauseCooldown = await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').companionAbilities.state.cooldowns['삼장법사']);
+  await page.keyboard.press('3');
+  await page.waitForTimeout(600);
+  expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').companionAbilities.state.cooldowns['삼장법사'])).toBe(pauseCooldown);
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(150);
+  expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').companionAbilities.waterGuard)).toBe(false);
+});
+
+test('companion skills: Bajie sweeps forward once per enemy, faces left and can unlock a boss exit', async ({ page }) => {
+  await openPartyStage(page);
+  await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    s.player.invulnerable = true;
+    s.targets = s.enemies.getChildren().filter((e: any) => e !== s.boss).slice(0, 2);
+    s.targets.forEach((e: any, i: number) => { e.body.reset(420 + i * 150, 432); e.hp = 10; e.updateEnemy = () => e.setVelocity(0, 0); });
+    s.boss.body.reset(660, 432); s.boss.hp = 3; s.boss.updateEnemy = () => s.boss.setVelocity(0, 0);
+  });
+  await page.keyboard.press('2');
+  await page.waitForTimeout(850);
+  expect(await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    return { hp: s.targets.map((e: any) => e.hp), bossHp: s.boss.hp, casting: s.companionAbilities.isCasting('저팔계') };
+  })).toEqual({ hp: [8, 8], bossHp: 2, casting: false });
+  await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    s.player.body.reset(900, 432); s.player.setFlipX(true);
+    s.companionAbilities.state.cooldowns['저팔계'] = 0;
+    s.companionAbilities.activate('저팔계');
+    s.boss.hp = 1;
+  });
+  await expect.poll(() => page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').boss.active)).toBe(false);
+  expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').bossExitUnlocked)).toBe(true);
+});
+
+test('companion skills: Sandy water wave, touch activation, terrain protection and retry recharge', async ({ page }) => {
+  await openPartyStage(page);
+  await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    s.target = s.enemies.getChildren()[0]; s.target.body.reset(460, 432); s.target.hp = 10;
+    s.target.updateEnemy = () => s.target.setVelocity(0, 0);
+  });
+  const point = await page.evaluate(() => {
+    const canvas = document.querySelector('canvas')!;
+    const rect = canvas.getBoundingClientRect();
+    const game = (window as any).__GAME__;
+    return { x: rect.x + 212 * rect.width / game.scale.width, y: rect.y + 134 * rect.height / game.scale.height };
+  });
+  await page.mouse.click(point.x, point.y);
+  await expect.poll(() => page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').companionAbilities.waterGuard)).toBe(true);
+  await page.screenshot({ path: 'output/playwright/companion-skills.png' });
+  await page.waitForTimeout(850);
+  expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').target.hp)).toBe(9);
+  expect(await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    const hazard = s.stage.hazards.find((h: any) => h.type === 'mud');
+    s.player.body.reset(hazard.x, 432);
+    s.player.body.updateFromGameObject();
+    s.applyGimmicks(16);
+    s.player.invulnerable = false;
+    const health = s.player.health;
+    s.handleHazardHit({ type: 'water', x: hazard.x, width: 100, label: '테스트 물' });
+    return { speed: s.player.movementMultiplier, health, after: s.player.health };
+  })).toEqual({ speed: 1, health: 6, after: 6 });
+  const saved = await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    s.companionAbilities.state.tideMs = 0;
+    s.player.body.reset(s.stage.hazards.find((h: any) => h.type === 'mud').x, 432);
+    s.player.body.updateFromGameObject();
+    s.applyGimmicks(16);
+    const speed = s.player.movementMultiplier;
+    const cooldown = s.companionAbilities.state.cooldowns['사오정'];
+    s.scene.restart({ stageId: s.stage.id, retry: { checkpointX: 300, seenBeats: ['trail', 'encounter'], collectedCoins: [], skills: s.companionAbilities.state } });
+    const zone = s.hazardZones.find((h: any) => h.data.type === 'mud').zone;
+    return { speed, cooldown, debug: { player: { x: s.player.body.x, y: s.player.body.y, w: s.player.body.width, h: s.player.body.height }, zone: zone.getBounds(), tide: s.companionAbilities.state.tideMs } };
+  });
+  expect(saved.speed, JSON.stringify(saved.debug)).toBeLessThan(1);
+  await page.waitForFunction(() => (window as any).__GAME__.scene.getScene('StageScene').retry);
+  expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').companionAbilities.state.cooldowns['사오정'])).toBeGreaterThan(saved.cooldown - 1000);
+  await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').scene.restart({ stageId: 'stage-08' }));
+  await page.waitForFunction(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    return s.stage.chapter === 8 && s.dialogue?.isOpen;
+  });
+  await dismiss(page);
+  expect(await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    const zone = s.hazardZones.find((h: any) => h.data.type === 'wind').zone;
+    s.player.body.reset(zone.x, zone.y);
+    s.player.body.updateFromGameObject();
+    s.player.setVelocityX(200);
+    s.windTimer = 3000;
+    s.companionAbilities.activate('사오정');
+    s.applyGimmicks(16);
+    const guarded = s.player.body.velocity.x;
+    s.companionAbilities.state.tideMs = 0;
+    s.windTimer = 3000;
+    s.applyGimmicks(16);
+    return { guarded, unguarded: s.player.body.velocity.x };
+  })).toEqual({ guarded: 200, unguarded: 105 });
+  // Replaying before they joined does not expose skills early.
+  await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').scene.restart({ stageId: 'stage-05' }));
+  await page.waitForFunction(() => (window as any).__GAME__.scene.getScene('StageScene').stage.chapter === 5);
+  expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').companionAbilities.activate('삼장법사'))).toBe(false);
+});
+
 test('level growth, preview persistence and staff appearance stay independent', async ({ page }) => {
   await openStage(page);
   await dismiss(page);
