@@ -19,7 +19,7 @@ import { companionTextures } from '../game/data/companions';
 import { addCoverBackground } from '../ui/background';
 import { bakedImage, bakeTexture } from '../ui/bake';
 import { addStageScenery, platformTexture } from '../ui/StageScenery';
-import { ArcadeChallenges, type ArcadeState } from '../game/ArcadeChallenges';
+import { ArcadeChallenges, mazeBlocksGround, type ArcadeState } from '../game/ArcadeChallenges';
 import { CompanionSkills, type CompanionSkillState } from '../game/CompanionSkills';
 import { companionSkills } from '../game/data/companions';
 
@@ -201,6 +201,10 @@ export class StageScene extends Phaser.Scene {
     this.createGoal();
     this.createInput();
     this.createUi();
+    // Created before the challenge and skill systems, whose hooks ask whether
+    // a story page is open (a restarted scene must not see the old box).
+    this.dialogue = new DialogueBox(this);
+    this.dialogue.setSkippable(StageManager.getStars(this.stage.id) > 0);
     this.arcade = new ArcadeChallenges(this, this.stage.chapter, this.player, this.platforms, {
       message: text => this.showArcadeMessage(text),
       reward: xp => this.gainExperience(xp),
@@ -215,8 +219,6 @@ export class StageScene extends Phaser.Scene {
       say: lines => { this.companionSay(lines); }
     }, this.retry?.skills);
 
-    this.dialogue = new DialogueBox(this);
-    this.dialogue.setSkippable(StageManager.getStars(this.stage.id) > 0);
     this.game.events.on(Phaser.Core.Events.HIDDEN, this.pauseForBackground, this);
     this.game.events.on('request-pause', this.pauseForBackground, this);
     Music.play(this.stage.musicKey);
@@ -252,11 +254,12 @@ export class StageScene extends Phaser.Scene {
     const gameplayPaused = this.inputLocked || this.dialogue.isOpen || this.stageCleared;
     this.companionAbilities.update(delta, gameplayPaused);
     if (gameplayPaused) this.mobileControls.reset();
-    else this.applyGimmicks(delta);
     const input = gameplayPaused ? this.emptyInput() : this.readInput();
     this.arcade.update(delta, gameplayPaused);
     if (!gameplayPaused) this.hazardPulseMs += Math.min(delta, 100);
     this.player.update(input);
+    // After the player sets its own velocity, so a gust really pushes back.
+    if (!gameplayPaused) this.applyGimmicks(delta);
     if (gameplayPaused && this.arcade.inFlight) this.player.setVelocity(0, 0);
     this.updateCompanionFollowers();
 
@@ -322,7 +325,7 @@ export class StageScene extends Phaser.Scene {
   }
 
   private updateStoryBeats(): void {
-    if (this.stageCleared) return;
+    if (this.stageCleared || this.arcade.inFlight) return;
     const story = chapterStories[this.stage.id];
     const encounterX = (this.stage.boss?.x ?? Infinity) - 400;
     const beats = [
@@ -380,7 +383,7 @@ export class StageScene extends Phaser.Scene {
     this.physics.add.collider(this.enemies, this.platforms);
     this.physics.add.collider(this.player, this.enemies, (_playerObject, enemyObject) => {
       this.handlePlayerEnemyCollision(enemyObject as Enemy);
-    });
+    }, () => !this.arcade?.inFlight);
     this.physics.add.overlap(this.player, this.coins, (_playerObject, coinObject) => {
       this.collectCoin(coinObject as Phaser.Physics.Arcade.Sprite);
     });
@@ -527,12 +530,16 @@ export class StageScene extends Phaser.Scene {
         const marker = this.add.rectangle(hazard.x, hazard.y, hazard.width, 18, 0x754cc8, 0.65).setStrokeStyle(3, 0xf8e85e).setDepth(4);
         const warning = this.add.text(hazard.x, 175, '! 옆으로 피하기', hudText(18)).setOrigin(0.5).setDepth(5);
         const beam = this.add.rectangle(hazard.x, 285, hazard.width, 300, 0xfff2a0, 0.8).setDepth(5);
-        this.events.on(Phaser.Scenes.Events.UPDATE, () => {
+        const pulse = () => {
           const phase = (this.hazardPulseMs + hazard.x) % 3600;
           marker.setAlpha(phase < 2100 ? 0.15 : phase < 3100 ? 0.65 : 1);
           warning.setVisible(phase >= 2100 && phase < 3100);
           beam.setVisible(phase >= 3100 && phase < 3400);
-        });
+        };
+        // The scene object is reused for every chapter, so remove the
+        // listener with this chapter's objects instead of piling them up.
+        this.events.on(Phaser.Scenes.Events.UPDATE, pulse);
+        this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.events.off(Phaser.Scenes.Events.UPDATE, pulse));
       } else {
         this.add.rectangle(hazard.x, hazard.y - 56, hazard.width, 128, 0xffffff, 0.08).setStrokeStyle(2, 0xfff4be, 0.32).setDepth(3);
         for (let x = startX + 45; x < startX + hazard.width; x += 90) {
@@ -656,7 +663,8 @@ export class StageScene extends Phaser.Scene {
     const between = platforms.slice(1).map((platform, index) => ({ x: (platforms[index].x + platform.x) / 2, y: 386 }));
     const candidates = Phaser.Utils.Array.Shuffle([...between, { x: goalX - 420, y: 386 }, { x: goalX - 210, y: 386 }])
       .filter(({ x }) => !hazards.some((hazard) => hazard.type !== 'wind' && Math.abs(x - hazard.x) < hazard.width / 2 + 40))
-      .filter(({ x }) => !platforms.some((platform) => platform.y >= 340 && Math.abs(x - platform.x) < platform.width / 2 + 30));
+      .filter(({ x }) => !platforms.some((platform) => platform.y >= 340 && Math.abs(x - platform.x) < platform.width / 2 + 30))
+      .filter(({ x }) => !mazeBlocksGround(this.stage.chapter, x, 40));
 
     candidates.slice(0, 3).forEach(({ x, y }) => {
       if (x < 260 || x > this.stage.goalX - 90) {
@@ -1207,7 +1215,7 @@ export class StageScene extends Phaser.Scene {
       this.showTip('cloud', touch ? '근두운을 배웠어요! 공중에서 점프를 한 번 더 누르면 구름을 타요' : '근두운을 배웠어요! 공중에서 ↑ 키를 한 번 더 누르면 구름을 타요', 6500);
     } else if (this.stage.chapter >= 6 && this.stage.chapter <= 8) {
       const name = this.companions[this.companions.length - 1];
-      if (name) this.showTip('friend', `${name}: ${companionSkills[name].description}\n${touch ? '왼쪽 동료 얼굴을 눌러 호출해요' : '왼쪽 동료 얼굴 또는 숫자 1·2·3 키로 호출해요'}`, 6500);
+      if (name) this.showTip('friend', `${name}: ${companionSkills[name].description}\n${touch ? '왼쪽 위 동료 얼굴을 눌러 호출해요' : '왼쪽 위 동료 얼굴 또는 숫자 1·2·3 키로 호출해요'}`, 6500);
     }
   }
 

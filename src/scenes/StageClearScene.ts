@@ -57,7 +57,13 @@ export class StageClearScene extends Phaser.Scene {
 
     this.showStars();
     this.drawJourneyMap(stage.chapter, total);
-    if (this.result.arcade) this.add.text(GAME_WIDTH / 2, 244, this.result.arcade, { color: '#755024', fontSize: '17px', fontStyle: 'bold' }).setOrigin(0.5);
+    // Challenge chapters never add a companion, so the result gets that free
+    // row instead of squeezing between the journey map and the lesson.
+    if (this.result.arcade) {
+      this.add.text(GAME_WIDTH / 2, stage.companionUnlock ? 248 : 384, `도전 기록 · ${this.result.arcade}`, {
+        color: '#fff8d6', fontSize: '21px', fontStyle: 'bold', backgroundColor: '#7a4f1d', padding: { x: 16, y: 7 }
+      }).setOrigin(0.5);
+    }
 
     bakedImage(this, `lesson-panel-${GAME_WIDTH}`, { x: GAME_WIDTH / 2 - 332, y: 260, width: 664, height: 82 }, (g) => {
       g.fillStyle(0xf6e2a8, 0.95).fillRoundedRect(GAME_WIDTH / 2 - 330, 262, 660, 78, 16);

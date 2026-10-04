@@ -12,11 +12,17 @@ export function addStageScenery(scene: Phaser.Scene, theme: StageBackgroundKey, 
   bakeTexture(scene, prop, 160, 190, g => {
     g.lineStyle(3, p.soil, 0.95);
     if (theme === 'cave' || theme === 'palace' || theme === 'gold') {
+      // Blunt gem columns, not sharp cones: on the walking lane a pointed
+      // shard reads as the spikes children are taught to jump over.
       for (const [x, y, h] of [[35, 170, 74], [72, 178, 112], [113, 173, 57]]) {
+        const gem = [
+          new Phaser.Geom.Point(x - 14, y), new Phaser.Geom.Point(x - 16, y - h * 0.6), new Phaser.Geom.Point(x - 7, y - h),
+          new Phaser.Geom.Point(x + 7, y - h), new Phaser.Geom.Point(x + 16, y - h * 0.6), new Phaser.Geom.Point(x + 14, y)
+        ];
         g.fillStyle(theme === 'cave' ? 0x5edaff : theme === 'palace' ? 0x78e1ec : 0xffdf67);
-        g.fillTriangle(x - 15, y, x, y - h, x + 15, y);
-        g.strokeTriangle(x - 15, y, x, y - h, x + 15, y);
-        g.lineStyle(2, 0xffffff, 0.65).lineBetween(x, y - h + 14, x - 5, y - 12);
+        g.fillPoints(gem, true);
+        g.lineStyle(3, p.soil, 0.95).strokePoints(gem, true);
+        g.lineStyle(2, 0xffffff, 0.65).lineBetween(x - 2, y - h + 10, x - 6, y - 12);
       }
     } else if (theme === 'skywar' || theme === 'ending') {
       g.fillStyle(0xe6f8ff, 0.95);
@@ -59,8 +65,10 @@ export function addStageScenery(scene: Phaser.Scene, theme: StageBackgroundKey, 
   for (let x = -120, i = 0; x < width + GAME_WIDTH; x += 330, i++) {
     scene.add.image(x, 432, prop).setOrigin(0.5, 1).setScrollFactor(0.42, 1).setScale(0.65 + (i % 3) * 0.1).setAlpha(0.46).setDepth(-12);
   }
+  // Near props stand behind the ground strip (base hidden, slightly dimmed),
+  // so they read as scenery rather than something on the path.
   for (let x = 130, i = 0; x < width; x += 470, i++) {
-    scene.add.image(x, 452, prop).setOrigin(0.5, 1).setScale(0.44 + (i % 2) * 0.12).setAlpha(0.9).setDepth(2);
+    scene.add.image(x, 446, prop).setOrigin(0.5, 1).setScale(0.44 + (i % 2) * 0.12).setTint(0xd9d2c4).setAlpha(0.85).setDepth(-1);
   }
   const mote = `mote-${theme}`;
   bakeTexture(scene, mote, 12, 12, g => {

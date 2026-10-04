@@ -6,6 +6,18 @@ import { GAME_WIDTH } from '../constants';
 export type ArcadeState = { seals: number[]; raceDone: boolean; raceRings: number; raceCollected: number[]; raceMs: number; dodges: number };
 type Hooks = { message: (text: string) => void; reward: (xp: number) => void; damage: () => void; flight: (on: boolean) => void };
 const textStyle = { color: '#fff4c4', fontSize: '18px', fontStyle: 'bold', stroke: '#211328', strokeThickness: 4 };
+// Maze layout shared with item placement: a short wall on the ground, a high
+// wall closing the upper loop, and the sealed gate before the boss.
+const MAZE_WALLS = [{ x: 820, y: 383, width: 54, height: 98 }, { x: 1420, y: 186, width: 54, height: 104 }];
+const MAZE_GATE = { x: 1850, y: 312, width: 32, height: 240 };
+
+const isMazeChapter = (chapter: number) => chapter === 2 || chapter === 9;
+
+// True when x (with a margin) is inside a maze wall or gate that reaches the ground.
+export function mazeBlocksGround(chapter: number, x: number, margin = 0): boolean {
+  if (!isMazeChapter(chapter)) return false;
+  return [...MAZE_WALLS, MAZE_GATE].some(block => block.y + block.height / 2 > 400 && Math.abs(x - block.x) < block.width / 2 + margin);
+}
 
 // Branching exploration, telegraphed danger and flight share the chapter
 // lifecycle, so their progress survives retries and pauses with the story.
@@ -42,15 +54,17 @@ export class ArcadeChallenges {
     this.refreshHud();
   }
 
-  get isMaze(): boolean { return this.chapter === 2 || this.chapter === 9; }
+  get isMaze(): boolean { return isMazeChapter(this.chapter); }
   get exitReady(): boolean { return !this.isMaze || this.state.seals.length === 3; }
   get inFlight(): boolean { return this.raceActive; }
   get result(): string | undefined {
     if (this.isMaze) return `미로 인장 ${this.state.seals.length}/3`;
     if (this.chapter === 4) return `번개 회피 ${this.state.dodges}회`;
-    if (this.chapter === 8 && this.state.raceDone) return `근두운 ${(this.state.raceMs / 1000).toFixed(1)}초 · 링 ${this.state.raceRings}/6`;
+    if (this.chapter === 8 && this.state.raceDone) return `근두운 ${(this.state.raceMs / 1000).toFixed(1)}초 · 링 ${this.state.raceRings}/6${this.raceMedal ? ' · 황금 근두운!' : ''}`;
     return undefined;
   }
+
+  private get raceMedal(): boolean { return this.state.raceMs <= 18000 && this.state.raceRings >= 4; }
 
   setHudVisible(visible: boolean): void {
     this.hud?.setVisible(visible);
@@ -76,12 +90,11 @@ export class ArcadeChallenges {
   private createMaze(): void {
     // Lower passage and an upper loop: leap onto the short wall, explore the
     // raised dead end for seal 2, then drop into the lower passage for seal 3.
-    this.ledge(820, 383, 54, 98);
-    this.ledge(1420, 186, 54, 104);
-    this.gate = this.scene.add.rectangle(1850, 312, 32, 240, 0x775498, 0.85).setStrokeStyle(4, 0xffd970).setDepth(3);
+    for (const wall of MAZE_WALLS) this.ledge(wall.x, wall.y, wall.width, wall.height);
+    this.gate = this.scene.add.rectangle(MAZE_GATE.x, MAZE_GATE.y, MAZE_GATE.width, MAZE_GATE.height, 0x775498, 0.85).setStrokeStyle(4, 0xffd970).setDepth(3);
     this.scene.physics.add.existing(this.gate, true);
     this.platforms.add(this.gate);
-    this.scene.add.text(1850, 175, '인장 3개 →', textStyle).setOrigin(0.5).setDepth(3);
+    this.scene.add.text(MAZE_GATE.x, 175, '인장 3개 →', textStyle).setOrigin(0.5).setDepth(3);
     const spots = [[460, 385], [1240, 195], [1570, 385]];
     for (let index = 0; index < spots.length; index++) {
       const [x, y] = spots[index];
@@ -163,7 +176,8 @@ export class ArcadeChallenges {
   }
 
   private createRace(): void {
-    this.scene.add.text(520, 226, '근두운 레이싱 →\n↑ / 점프: 올라가기 · 떼면 내려가기\n→ 가속 · ← 천천히 · 황금 링 모으기', textStyle).setDepth(3);
+    // Between the hero's start and the first ring, so no ring hides the guide.
+    this.scene.add.text(330, 160, '근두운 레이싱 →\n↑ / 점프: 올라가기 · 떼면 내려가기\n→ 가속 · ← 천천히 · 황금 링 모으기\n공격으로 요괴도 물리쳐요', { ...textStyle, lineSpacing: 4 }).setDepth(3);
     this.scene.add.image(600, 399, 'nimbus-cloud').setDepth(3);
     for (let i = 0; i < 6; i++) {
       const ring = this.scene.add.ellipse(820 + i * 215, i % 2 === 0 ? 228 : 321, 52, 80, 0xffd65a, 0.08)
@@ -202,7 +216,7 @@ export class ArcadeChallenges {
     if (this.player.x >= 2150) {
       this.raceActive = false; this.state.raceDone = true;
       this.player.setCloudRide(false); this.hooks.flight(false); this.raceCloud?.destroy();
-      const medal = this.state.raceMs <= 18000 && this.state.raceRings >= 4;
+      const medal = this.raceMedal;
       this.hooks.reward(medal ? 10 : 4);
       this.hooks.message(medal ? '황금 근두운! 링과 기록 모두 성공!' : '근두운 완주! 다음에는 링 4개에 도전해요');
     }

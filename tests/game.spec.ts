@@ -115,7 +115,7 @@ test('companion skills: Sandy water wave, touch activation, terrain protection a
     const canvas = document.querySelector('canvas')!;
     const rect = canvas.getBoundingClientRect();
     const game = (window as any).__GAME__;
-    return { x: rect.x + 212 * rect.width / game.scale.width, y: rect.y + 134 * rect.height / game.scale.height };
+    return { x: rect.x + 236 * rect.width / game.scale.width, y: rect.y + 134 * rect.height / game.scale.height };
   });
   await page.mouse.click(point.x, point.y);
   await expect.poll(() => page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').companionAbilities.waterGuard)).toBe(true);
@@ -191,8 +191,18 @@ test('level growth, preview persistence and staff appearance stay independent', 
     return { level, staffBefore, idleGlow, saved: localStorage.getItem('corn-wukong-level'), upgraded: StageManager.isStaffUpgraded() };
   });
   expect(result).toEqual({ level: 2, staffBefore: false, idleGlow: 0, saved: null, upgraded: true });
-  await page.keyboard.press('Space');
-  await expect.poll(() => page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').player.staffGlow.commandBuffer.length)).toBeGreaterThan(0);
+  // The impact arc lasts ~160 ms, shorter than poll gaps: record it every frame.
+  await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    (window as any).__glowSeen = 0;
+    const watch = () => { (window as any).__glowSeen = Math.max((window as any).__glowSeen, s.player.staffGlow.commandBuffer.length); };
+    s.events.on('postupdate', watch);
+    s.events.once('shutdown', () => s.events.off('postupdate', watch));
+  });
+  await page.keyboard.down('Space');
+  await page.waitForTimeout(60);
+  await page.keyboard.up('Space');
+  await expect.poll(() => page.evaluate(() => (window as any).__glowSeen)).toBeGreaterThan(0);
   await page.waitForTimeout(500);
   expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').player.staffGlow.commandBuffer.length)).toBe(0);
 });
@@ -1058,4 +1068,75 @@ test('cloud race uses held controls, collects rings once, pauses its clock and r
   expect(result.gravity).toBe(true);
   expect(result.platforms).toBe(true);
   expect(result.ms).toBeLessThan(18000);
+});
+
+test('riding the cloud passes over monsters, still swings the staff and saves story pages for landing', async ({ page }) => {
+  await openStage(page, 8);
+  await dismiss(page);
+  await page.keyboard.down('ArrowRight');
+  await page.waitForFunction(() => (window as any).__GAME__.scene.getScene('StageScene').arcade.inFlight);
+  await page.keyboard.up('ArrowRight');
+  // Flying low over a walker: no bump, and the walker is not dragged along.
+  const before = await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    const sand = s.enemies.getChildren().find((e: any) => e.texture.key === 'enemy-sand');
+    sand.body.reset(s.player.x + 40, 436);
+    return { health: s.player.health, x: sand.x };
+  });
+  await page.waitForTimeout(700);
+  const after = await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    const sand = s.enemies.getChildren().find((e: any) => e.texture.key === 'enemy-sand');
+    return { health: s.player.health, x: sand.x, flying: s.arcade.inFlight, y: s.player.y };
+  });
+  expect(after.flying).toBe(true);
+  expect(after.y).toBeGreaterThan(400);
+  expect(after.health).toBe(before.health);
+  expect(Math.abs(after.x - before.x)).toBeLessThan(60);
+  // The staff still swings from the cloud.
+  await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    s.enemies.getChildren().find((e: any) => e.texture.key === 'enemy-dust-wolf').body.reset(s.player.x + 90, 436);
+  });
+  await page.keyboard.press('Space');
+  await expect.poll(() => page.evaluate(() => {
+    const wolf = (window as any).__GAME__.scene.getScene('StageScene').enemies.getChildren().find((e: any) => e.texture.key === 'enemy-dust-wolf');
+    return !wolf.active || wolf.hp < 3;
+  })).toBe(true);
+  // The story page waits until the cloud lands.
+  await page.evaluate(() => { (window as any).__GAME__.scene.getScene('StageScene').player.invulnerable = true; });
+  await page.keyboard.down('ArrowRight');
+  await page.waitForFunction(() => (window as any).__GAME__.scene.getScene('StageScene').player.x > 1420);
+  expect(await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    return { open: s.dialogue.isOpen, flying: s.arcade.inFlight };
+  })).toEqual({ open: false, flying: true });
+  await page.waitForFunction(() => !(window as any).__GAME__.scene.getScene('StageScene').arcade.inFlight);
+  await page.keyboard.up('ArrowRight');
+  await page.waitForFunction(() => (window as any).__GAME__.scene.getScene('StageScene').dialogue.isOpen);
+  expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').storyBeatsSeen.has('trail'))).toBe(true);
+});
+
+test('a wind gust pushes against the hero during real play', async ({ page }) => {
+  await openStage(page, 8);
+  await dismiss(page);
+  const result = await page.evaluate(async () => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    s.arcade.state.raceDone = true;
+    s.storyBeatsSeen = new Set(['trail', 'encounter']);
+    s.enemies.getChildren().forEach((e: any) => e.disableBody(true, true));
+    s.player.body.reset(1080, 432);
+    s.readInput = () => ({ left: false, right: true, down: false, jump: false, attack: false });
+    const frame = () => new Promise((resolve) => s.events.once('postupdate', resolve));
+    await frame();
+    await frame();
+    s.windTimer = 2700;
+    await frame();
+    const gust = s.player.body.velocity.x;
+    s.windTimer = 0;
+    await frame();
+    return { gust, calm: s.player.body.velocity.x };
+  });
+  expect(result.calm).toBeGreaterThan(200);
+  expect(result.gust).toBeLessThan(result.calm - 60);
 });

@@ -214,7 +214,7 @@ const stageLayouts: Array<Omit<StageData, 'startDialogue' | 'clearDialogue'>> = 
     backgroundKey: 'forest', musicKey: 'stage-forest', worldWidth: 3200,
     playerStart: { x: 220, y: 382 }, goalX: 2920, goalLabel: '숲의 출구', clearMode: 'boss',
     enemies: [
-      { type: 'charger', name: '호랑이 부하', x: 850, y: groundY - 40, hp: 2, damage: 1, speed: 105, patrolRange: 190, spriteKey: 'enemy-tiger' },
+      { type: 'charger', name: '호랑이 부하', x: 980, y: groundY - 40, hp: 2, damage: 1, speed: 105, patrolRange: 190, spriteKey: 'enemy-tiger' },
       { type: 'walker', name: '나무 요괴', x: 1500, y: groundY - 46, hp: 3, damage: 1, speed: 40, patrolRange: 150, spriteKey: 'enemy-tree' },
       { type: 'flyer', name: '그림자 나방', x: 2080, y: 250, hp: 2, damage: 1, speed: 90, patrolRange: 190, spriteKey: 'enemy-moth' }
     ],

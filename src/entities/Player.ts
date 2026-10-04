@@ -117,8 +117,12 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       if (this.y <= 205 && body.velocity.y < 0 || this.y >= 408 && body.velocity.y > 0) body.setVelocityY(0);
       this.setY(Phaser.Math.Clamp(this.y, 205, 408));
       this.setFlipX(false);
-      this.setPose('crouch');
-      this.setAngle(input.jump ? -3 : 2);
+      // The staff still swings from the cloud, so monsters on the way can be met.
+      if (input.attack && !this.previousAttack) this.beginAttack();
+      if (!this.attacking) {
+        this.setPose('crouch');
+        this.setAngle(input.jump ? -3 : 2);
+      }
       this.updateStaffGlow();
       this.previousJump = input.jump;
       this.previousAttack = input.attack;

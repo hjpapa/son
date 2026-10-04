@@ -22,14 +22,15 @@ export class CompanionSkills {
     this.aura = scene.add.graphics().setDepth(5.5);
     names.forEach((name, index) => {
       const skill = companionSkills[name];
-      const x = 48 + index * 82;
-      const panel = scene.add.rectangle(x, 134, 74, 64, 0x2a1a08, 0.87).setStrokeStyle(2, skill.color)
+      // Sized for a thumb on a phone, where the game is drawn at about 0.7x.
+      const x = 52 + index * 92;
+      const panel = scene.add.rectangle(x, 134, 84, 66, 0x2a1a08, 0.87).setStrokeStyle(3, skill.color)
         .setScrollFactor(0).setDepth(903).setInteractive({ useHandCursor: true });
-      const face = scene.add.image(x - 13, 120, companionTextures[name]).setScrollFactor(0).setDepth(904);
-      face.setScale(34 / face.height);
-      scene.add.text(x + 17, 120, String(index + 1), { fontSize: '17px', color: '#fff5cd', fontStyle: 'bold' })
+      const face = scene.add.image(x - 14, 119, companionTextures[name]).setScrollFactor(0).setDepth(904);
+      face.setScale(38 / face.height);
+      scene.add.text(x + 21, 119, String(index + 1), { fontSize: '19px', color: '#fff5cd', fontStyle: 'bold' })
         .setOrigin(0.5).setScrollFactor(0).setDepth(904);
-      const status = scene.add.text(x, 148, '', { fontSize: '13px', color: '#fff5cd', fontStyle: 'bold' })
+      const status = scene.add.text(x, 152, '', { fontSize: '15px', color: '#fff5cd', fontStyle: 'bold' })
         .setOrigin(0.5).setScrollFactor(0).setDepth(904);
       panel.on('pointerdown', () => this.activate(name));
       this.cards.push({ name, panel, status, key: scene.input.keyboard!.addKey(skill.key) });
