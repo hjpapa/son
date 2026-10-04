@@ -2,12 +2,14 @@ import Phaser from 'phaser';
 import { Music } from '../audio/Music';
 import { Sfx } from '../audio/Sfx';
 import { getStage } from '../game/data/stages';
+import { PlayTime } from '../game/playTime';
 import { StageManager } from '../game/StageManager';
 import { GAME_HEIGHT, GAME_WIDTH } from '../constants';
 import { createButton } from '../ui/Button';
 import { companionTextures } from '../game/data/companions';
 import { addCoverBackground } from '../ui/background';
-import { drawStar } from '../ui/stars';
+import { bakedImage } from '../ui/bake';
+import { starTexture } from '../ui/stars';
 
 type StageClearInit = {
   stageId: string;
@@ -23,6 +25,8 @@ const INPUT_DELAY_MS = 700;
 export class StageClearScene extends Phaser.Scene {
   private stageId = StageManager.getFirstStageId();
   private result: StageClearInit = { stageId: this.stageId };
+  // True while the break suggestion is open (or about to open).
+  private breakPanel = false;
 
   constructor() {
     super('StageClearScene');
@@ -31,6 +35,7 @@ export class StageClearScene extends Phaser.Scene {
   init(data: StageClearInit): void {
     this.stageId = data.stageId;
     this.result = data;
+    this.breakPanel = false;
   }
 
   create(): void {
@@ -52,9 +57,10 @@ export class StageClearScene extends Phaser.Scene {
     this.showStars();
     this.drawJourneyMap(stage.chapter, total);
 
-    const lessonPanel = this.add.graphics();
-    lessonPanel.fillStyle(0xf6e2a8, 0.95).fillRoundedRect(GAME_WIDTH / 2 - 330, 262, 660, 78, 16);
-    lessonPanel.lineStyle(3, 0x9a6a2a, 1).strokeRoundedRect(GAME_WIDTH / 2 - 330, 262, 660, 78, 16);
+    bakedImage(this, `lesson-panel-${GAME_WIDTH}`, { x: GAME_WIDTH / 2 - 332, y: 260, width: 664, height: 82 }, (g) => {
+      g.fillStyle(0xf6e2a8, 0.95).fillRoundedRect(GAME_WIDTH / 2 - 330, 262, 660, 78, 16);
+      g.lineStyle(3, 0x9a6a2a, 1).strokeRoundedRect(GAME_WIDTH / 2 - 330, 262, 660, 78, 16);
+    });
     this.add.text(GAME_WIDTH / 2, 274, '이번 장의 마음', { color: '#a13a22', fontSize: '17px', fontStyle: 'bold' }).setOrigin(0.5, 0);
     this.add.text(GAME_WIDTH / 2, 300, stage.lesson, {
       color: '#3d2600', fontSize: '22px', fontStyle: 'bold', align: 'center', wordWrap: { width: 620 }
@@ -74,16 +80,42 @@ export class StageClearScene extends Phaser.Scene {
       ready = true;
     });
     const next = () => {
-      if (!ready) return;
+      if (!ready || this.breakPanel) return;
       this.scene.start('StageScene', { stageId: stage.nextStageId ?? StageManager.getFirstStageId() });
     };
     createButton(this, GAME_WIDTH / 2 + 110, 462, `제 ${stage.chapter + 1}장으로 ▶`, next, { width: 280, height: 70, fontSize: 28, primary: true });
     createButton(this, GAME_WIDTH / 2 - 170, 462, '처음 화면', () => {
-      if (!ready) return;
+      if (!ready || this.breakPanel) return;
       this.scene.start('TitleScene');
     }, { width: 180 });
 
     this.input.keyboard?.on('keydown-ENTER', next);
+
+    if (PlayTime.breakDue) {
+      this.breakPanel = true;
+      this.time.delayedCall(900, () => this.suggestBreak());
+    }
+  }
+
+  // After 30 minutes of play, a gentle suggestion to rest eyes and body.
+  private suggestBreak(): void {
+    PlayTime.reset();
+    const shade = this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x120c06, 0.72).setOrigin(0).setInteractive();
+    const panel = bakedImage(this, `break-panel-${GAME_WIDTH}`, { x: GAME_WIDTH / 2 - 293, y: 87, width: 586, height: 366 }, (g) => {
+      g.fillStyle(0xfff3cf, 0.98).fillRoundedRect(GAME_WIDTH / 2 - 290, 90, 580, 360, 26);
+      g.lineStyle(5, 0x8a5a1a, 1).strokeRoundedRect(GAME_WIDTH / 2 - 290, 90, 580, 360, 26);
+    });
+    const hero = this.add.image(GAME_WIDTH / 2, 176, 'corn-wukong-clean-idle');
+    hero.setScale(100 / hero.height);
+    const message = this.add.text(GAME_WIDTH / 2, 286, ['30분 동안 신나게 모험했어요!', '잠깐 눈을 쉬고, 물 한 잔 마시고,', '기지개를 쭉 켜 볼까요?'], {
+      color: '#4a2b00', fontSize: '24px', fontStyle: 'bold', align: 'center', lineSpacing: 8
+    }).setOrigin(0.5);
+    const close = () => {
+      for (const item of [shade, panel, hero, message, rest, more]) item.destroy();
+      this.breakPanel = false;
+    };
+    const rest = createButton(this, GAME_WIDTH / 2 - 130, 396, '쉬었다 올게요', () => this.scene.start('TitleScene'), { width: 220, primary: true });
+    const more = createButton(this, GAME_WIDTH / 2 + 130, 396, '조금만 더 할래요', close, { width: 220, fontSize: 22 });
   }
 
   // Stars pop in one by one, with the corn coin count beside them.
@@ -91,8 +123,7 @@ export class StageClearScene extends Phaser.Scene {
     const { stars = 1, coins = 0, totalCoins = 0 } = this.result;
     const y = 140;
     for (let index = 0; index < 3; index += 1) {
-      const star = this.add.graphics({ x: GAME_WIDTH / 2 - 150 + index * 50, y });
-      drawStar(star, 0, 0, 21, index < stars);
+      const star = this.add.image(GAME_WIDTH / 2 - 150 + index * 50, y, starTexture(this, 21, index < stars));
       star.setScale(0);
       this.tweens.add({
         targets: star,

@@ -1,9 +1,10 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from '../constants';
 import type { PlayerInputState } from '../types/InputState';
+import { bakeTexture } from './bake';
 
 type ControlName = 'left' | 'right' | 'jump' | 'attack';
-type Button = { control: ControlName; x: number; y: number; radius: number; graphics: Phaser.GameObjects.Graphics; label?: Phaser.GameObjects.Text };
+type Button = { control: ControlName; x: number; y: number; radius: number; image: Phaser.GameObjects.Image; label?: Phaser.GameObjects.Text };
 
 // Holding the attack button keeps swinging, so small hands don't need to mash.
 const ATTACK_REPEAT_MS = 420;
@@ -58,20 +59,29 @@ export class MobileControls {
   }
 
   private addButton(control: ControlName, x: number, y: number, radius: number, text?: string): void {
-    const graphics = this.scene.add.graphics().setScrollFactor(0).setDepth(1000);
+    // Each button is drawn once in its normal and pressed look, then swapped.
+    for (const active of [false, true]) {
+      const center = radius + 10;
+      bakeTexture(this.scene, this.textureKey(control, active), center * 2, center * 2, (g) => this.drawButton(g, control, center, center, radius, active));
+    }
+    const image = this.scene.add.image(x, y, this.textureKey(control, false)).setScrollFactor(0).setDepth(1000);
     const label = text
       ? this.scene.add.text(x, y + radius * 0.42, text, { color: '#3a2600', fontSize: '17px', fontStyle: 'bold' })
         .setOrigin(0.5).setScrollFactor(0).setDepth(1001)
       : undefined;
-    this.buttons.push({ control, x, y, radius, graphics, label });
-    this.paint(this.buttons[this.buttons.length - 1], false);
+    this.buttons.push({ control, x, y, radius, image, label });
+  }
+
+  private textureKey(control: ControlName, active: boolean): string {
+    return `touch-${control}-${active ? 'on' : 'off'}`;
   }
 
   private paint(button: Button, active: boolean): void {
-    const { graphics: g, x, y, radius: r, control } = button;
-    const scale = active ? 0.94 : 1;
-    const radius = r * scale;
-    g.clear();
+    button.image.setTexture(this.textureKey(button.control, active));
+  }
+
+  private drawButton(g: Phaser.GameObjects.Graphics, control: ControlName, x: number, y: number, r: number, active: boolean): void {
+    const radius = r * (active ? 0.94 : 1);
     g.fillStyle(0x000000, 0.18).fillCircle(x + 3, y + 5, radius);
     g.fillStyle(active ? 0xffd34d : 0xfff7dc, active ? 0.95 : 0.66).fillCircle(x, y, radius);
     g.lineStyle(4, 0x6d4a00, 0.8).strokeCircle(x, y, radius);
@@ -90,7 +100,7 @@ export class MobileControls {
 
   private setVisible(visible: boolean): void {
     for (const button of this.buttons) {
-      button.graphics.setVisible(visible);
+      button.image.setVisible(visible);
       button.label?.setVisible(visible);
     }
   }

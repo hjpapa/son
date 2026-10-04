@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { Music } from '../audio/Music';
 import { Settings } from '../game/Settings';
 import { GAME_HEIGHT, GAME_WIDTH } from '../constants';
+import { bakedImage } from '../ui/bake';
 import { createButton } from '../ui/Button';
 
 type PauseInit = { stageId: string };
@@ -19,9 +20,10 @@ export class PauseScene extends Phaser.Scene {
     this.stageId = data.stageId;
     Music.duck(true);
     this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x120c06, 0.7).setOrigin(0).setInteractive();
-    const panel = this.add.graphics();
-    panel.fillStyle(0xfff3cf, 0.98).fillRoundedRect(GAME_WIDTH / 2 - 250, 60, 500, 420, 26);
-    panel.lineStyle(5, 0x8a5a1a, 1).strokeRoundedRect(GAME_WIDTH / 2 - 250, 60, 500, 420, 26);
+    bakedImage(this, `pause-panel-${GAME_WIDTH}`, { x: GAME_WIDTH / 2 - 253, y: 57, width: 506, height: 426 }, (g) => {
+      g.fillStyle(0xfff3cf, 0.98).fillRoundedRect(GAME_WIDTH / 2 - 250, 60, 500, 420, 26);
+      g.lineStyle(5, 0x8a5a1a, 1).strokeRoundedRect(GAME_WIDTH / 2 - 250, 60, 500, 420, 26);
+    });
     this.add.text(GAME_WIDTH / 2, 112, '잠깐 쉬어요', { color: '#4a2b00', fontSize: '38px', fontStyle: 'bold' }).setOrigin(0.5);
 
     createButton(this, GAME_WIDTH / 2, 178, '계속하기 ▶', () => this.resumeGame(), { width: 320, height: 70, fontSize: 30, primary: true });

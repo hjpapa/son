@@ -6,6 +6,7 @@ import { Settings } from '../game/Settings';
 import { StageManager } from '../game/StageManager';
 import { GAME_HEIGHT, GAME_WIDTH } from '../constants';
 import { enterFullscreen } from '../platform/webapp';
+import { bakedImage } from '../ui/bake';
 import { createButton } from '../ui/Button';
 import { companionTextures } from '../game/data/companions';
 import { addCoverBackground } from '../ui/background';
@@ -130,9 +131,10 @@ export class TitleScene extends Phaser.Scene {
   private askNewJourney(): void {
     if (this.confirmLayer) return;
     const shade = this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x120c06, 0.7).setOrigin(0).setInteractive();
-    const panel = this.add.graphics();
-    panel.fillStyle(0xfff3cf, 0.98).fillRoundedRect(GAME_WIDTH / 2 - 270, 130, 540, 270, 24);
-    panel.lineStyle(5, 0x8a5a1a, 1).strokeRoundedRect(GAME_WIDTH / 2 - 270, 130, 540, 270, 24);
+    const panel = bakedImage(this, `confirm-panel-${GAME_WIDTH}`, { x: GAME_WIDTH / 2 - 273, y: 127, width: 546, height: 276 }, (g) => {
+      g.fillStyle(0xfff3cf, 0.98).fillRoundedRect(GAME_WIDTH / 2 - 270, 130, 540, 270, 24);
+      g.lineStyle(5, 0x8a5a1a, 1).strokeRoundedRect(GAME_WIDTH / 2 - 270, 130, 540, 270, 24);
+    });
     const question = this.add.text(GAME_WIDTH / 2, 200, '처음부터 다시 할까요?\n지금까지의 여행 기록이 지워져요.\n(요괴 도감은 그대로 남아요)', {
       color: '#4a2b00', fontSize: '26px', fontStyle: 'bold', align: 'center', lineSpacing: 10
     }).setOrigin(0.5);

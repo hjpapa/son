@@ -9,6 +9,7 @@ import { bestiaryEntry } from '../game/data/bestiary';
 import { coinSpots, getStage, type StageBackgroundKey, type StageData, type StageHazard } from '../game/data/stages';
 import { chapterStories } from '../game/data/story';
 import { josa } from '../game/korean';
+import { PlayTime } from '../game/playTime';
 import { StageManager } from '../game/StageManager';
 import { GAME_HEIGHT, GAME_WIDTH } from '../constants';
 import type { PlayerInputState } from '../types/InputState';
@@ -16,6 +17,7 @@ import { DialogueBox } from '../ui/DialogueBox';
 import { MobileControls } from '../ui/MobileControls';
 import { companionTextures } from '../game/data/companions';
 import { addCoverBackground } from '../ui/background';
+import { bakedImage, bakeTexture } from '../ui/bake';
 
 // Progress kept when a chapter restarts after the last talisman is used, so
 // a young player continues near where they fell instead of from the start.
@@ -85,12 +87,12 @@ export class StageScene extends Phaser.Scene {
   private keys!: Record<'A' | 'D' | 'W' | 'S' | 'SPACE', Phaser.Input.Keyboard.Key>;
   private mobileControls!: MobileControls;
   private dialogue!: DialogueBox;
-  private hud!: Phaser.GameObjects.Graphics;
   private talismanText!: Phaser.GameObjects.Text;
   private coinText!: Phaser.GameObjects.Text;
   private levelText!: Phaser.GameObjects.Text;
-  private bossBar?: Phaser.GameObjects.Graphics;
-  private progressBar!: Phaser.GameObjects.Graphics;
+  private bossBarFrame?: Phaser.GameObjects.Image;
+  private bossBarFill?: Phaser.GameObjects.Rectangle;
+  private progressFill!: Phaser.GameObjects.Rectangle;
   private progressHero!: Phaser.GameObjects.Image;
   private bossBarName?: Phaser.GameObjects.Text;
   private exitGate?: Phaser.GameObjects.Rectangle;
@@ -113,6 +115,10 @@ export class StageScene extends Phaser.Scene {
   private companions: string[] = [];
   private tip?: Phaser.GameObjects.Container;
   private discoveryToast?: Phaser.GameObjects.Container;
+  private speech?: { container: Phaser.GameObjects.Container; index: number; until: number };
+  private companionHelpUsed = false;
+  private bossSpotted = false;
+  private hazardsMentioned = new Set<StageHazard>();
   private tipsShown = new Set<string>();
 
   constructor() {
@@ -122,6 +128,10 @@ export class StageScene extends Phaser.Scene {
   init(data: StageSceneInit): void {
     this.stage = getStage(data.stageId ?? StageManager.getFirstStageId());
     this.companions = StageManager.getCompanionsForChapter(this.stage.chapter);
+    this.speech = undefined;
+    this.companionHelpUsed = false;
+    this.bossSpotted = false;
+    this.hazardsMentioned = new Set();
     this.tip = undefined;
     this.tipsShown = new Set();
     this.retry = data.retry;
@@ -134,7 +144,8 @@ export class StageScene extends Phaser.Scene {
     this.npcMet = false;
     this.rewardCollected = false;
     this.hazardHitReadyAt = 0;
-    this.bossBar = undefined;
+    this.bossBarFrame = undefined;
+    this.bossBarFill = undefined;
     this.bossBarName = undefined;
     this.exitGate = undefined;
     this.exitHint = undefined;
@@ -210,6 +221,7 @@ export class StageScene extends Phaser.Scene {
     if (!this.player?.active) {
       return;
     }
+    PlayTime.add(delta);
 
     const gameplayPaused = this.inputLocked || this.dialogue.isOpen;
     if (gameplayPaused) this.mobileControls.reset();
@@ -364,6 +376,48 @@ export class StageScene extends Phaser.Scene {
       companion.y = Phaser.Math.Linear(companion.y, this.player.y, 0.12);
       companion.setFlipX(trailDirection > 0);
     });
+
+    if (this.speech) {
+      const speaker = this.companionSprites[this.speech.index];
+      if (this.time.now > this.speech.until || !speaker) {
+        this.speech.container.destroy();
+        this.speech = undefined;
+      } else {
+        this.speech.container.setPosition(speaker.x, speaker.y - 86);
+      }
+    }
+    this.mentionHazardsAhead();
+  }
+
+  // Friends on the road talk: short speech bubbles over a companion's head.
+  private companionSay(lines: Partial<Record<string, string>>, duration = 2600): boolean {
+    const name = this.companions.find((companion) => lines[companion]);
+    if (!name || this.stageCleared) return false;
+    const index = this.companions.indexOf(name);
+    const speaker = this.companionSprites[index];
+    this.speech?.container.destroy();
+    const text = this.add.text(0, 0, lines[name]!, {
+      color: '#2a1a08', fontSize: '17px', fontStyle: 'bold', backgroundColor: '#fffaf0', padding: { x: 10, y: 6 }, align: 'center', wordWrap: { width: 220 }
+    }).setOrigin(0.5, 1);
+    const tail = this.add.triangle(0, 7, 0, 0, 14, 0, 7, 9, 0xfffaf0).setOrigin(0.5, 1);
+    const container = this.add.container(speaker.x, speaker.y - 86, [tail, text]).setDepth(60);
+    this.speech = { container, index, until: this.time.now + duration };
+    return true;
+  }
+
+  private mentionHazardsAhead(): void {
+    if (this.inputLocked || this.dialogue?.isOpen) return;
+    const hazard = this.stage.hazards.find((item) => !this.hazardsMentioned.has(item) && item.x - this.player.x > 0 && item.x - this.player.x < 320);
+    if (!hazard) return;
+    this.hazardsMentioned.add(hazard);
+    const warnings: Record<StageHazard['type'], Partial<Record<string, string>>> = {
+      spikes: { '사오정': '뾰족한 곳은 뛰어넘어요!', '저팔계': '앗, 뾰족해! 점프하자!', '삼장법사': '오공아, 가시를 조심하거라.' },
+      water: { '사오정': '물살은 제가 잘 알아요. 위로 건너요!', '저팔계': '물에 빠지면 안 돼!', '삼장법사': '다리 위로 건너가자꾸나.' },
+      lightning: { '저팔계': '번개다! 위로 뛰어!', '사오정': '번쩍이는 곳은 피해요!', '삼장법사': '번개 구름이구나. 조심하거라.' },
+      mud: { '저팔계': '으, 끈적끈적해…', '사오정': '늪은 천천히 건너요.', '삼장법사': '서두르지 말고 한 걸음씩.' },
+      wind: { '사오정': '바람이 세요. 버텨요!', '저팔계': '날아가겠어!', '삼장법사': '바람이 쉴 때 나아가자.' }
+    };
+    this.companionSay(warnings[hazard.type]);
   }
 
   private createNpc(): void {
@@ -644,7 +698,9 @@ export class StageScene extends Phaser.Scene {
   }
 
   private createUi(): void {
-    this.hud = this.add.graphics().setScrollFactor(0).setDepth(900);
+    // Hearts, talismans and panels are redrawn into one image only when they change.
+    this.drawHud();
+    this.add.image(0, 0, 'hud-layer').setOrigin(0).setScrollFactor(0).setDepth(900);
 
     this.talismanText = this.add.text(60, 63, '', hudText(19)).setScrollFactor(0).setDepth(902);
     this.companions.forEach((name, index) => {
@@ -669,8 +725,15 @@ export class StageScene extends Phaser.Scene {
 
     this.createPauseButton();
     this.createProgressBar();
-    this.bossBar = this.add.graphics().setScrollFactor(0).setDepth(901);
     if (this.stage.boss) {
+      const width = 360;
+      const x = (GAME_WIDTH - width) / 2;
+      const y = 128;
+      this.bossBarFrame = bakedImage(this, `boss-bar-frame-${GAME_WIDTH}`, { x: x - 2, y: y - 2, width: width + 4, height: 22 }, (g) => {
+        g.fillStyle(0x23160a, 0.85).fillRoundedRect(x, y, width, 18, 6);
+        g.lineStyle(2, 0xffdf73, 0.9).strokeRoundedRect(x, y, width, 18, 6);
+      }).setScrollFactor(0).setDepth(901).setVisible(false);
+      this.bossBarFill = this.add.rectangle(x + 3, y + 3, width - 6, 12, 0xe74b3c).setOrigin(0).setScrollFactor(0).setDepth(902).setVisible(false);
       this.bossBarName = this.add.text(GAME_WIDTH / 2, 102, this.stage.boss.name, hudText(18, '#ffd6c9')).setOrigin(0.5, 0).setScrollFactor(0).setDepth(902).setVisible(false);
     }
     this.createSurviveTimerUi();
@@ -682,10 +745,12 @@ export class StageScene extends Phaser.Scene {
   private createProgressBar(): void {
     const left = GAME_WIDTH / 2 - PROGRESS_WIDTH / 2;
     const y = 86;
-    this.progressBar = this.add.graphics().setScrollFactor(0).setDepth(901);
-    const flag = this.add.graphics().setScrollFactor(0).setDepth(902);
-    flag.fillStyle(0x6e4300, 1).fillRect(left + PROGRESS_WIDTH + 6, y - 12, 3, 20);
-    flag.fillStyle(0xe8453c, 1).fillTriangle(left + PROGRESS_WIDTH + 9, y - 12, left + PROGRESS_WIDTH + 24, y - 7, left + PROGRESS_WIDTH + 9, y - 2);
+    bakedImage(this, `progress-track-${GAME_WIDTH}`, { x: left - 4, y: y - 13, width: PROGRESS_WIDTH + 32, height: 22 }, (g) => {
+      g.fillStyle(0x2a1a08, 0.7).fillRoundedRect(left - 4, y - 5, PROGRESS_WIDTH + 8, 10, 5);
+      g.fillStyle(0x6e4300, 1).fillRect(left + PROGRESS_WIDTH + 6, y - 12, 3, 20);
+      g.fillStyle(0xe8453c, 1).fillTriangle(left + PROGRESS_WIDTH + 9, y - 12, left + PROGRESS_WIDTH + 24, y - 7, left + PROGRESS_WIDTH + 9, y - 2);
+    }).setScrollFactor(0).setDepth(901);
+    this.progressFill = this.add.rectangle(left - 2, y - 3, PROGRESS_WIDTH + 4, 6, 0xffd24a).setOrigin(0).setScrollFactor(0).setDepth(902);
     if (this.stage.boss && this.stage.clearMode !== 'survive') {
       const bossIcon = this.add.image(left + PROGRESS_WIDTH * this.progressRatio(this.stage.boss.x), y, this.stage.boss.spriteKey).setScrollFactor(0).setDepth(902);
       bossIcon.setScale(24 / bossIcon.height);
@@ -705,18 +770,17 @@ export class StageScene extends Phaser.Scene {
     const left = GAME_WIDTH / 2 - PROGRESS_WIDTH / 2;
     const y = 86;
     const ratio = this.progressRatio(this.player.x);
-    this.progressBar.clear();
-    this.progressBar.fillStyle(0x2a1a08, 0.7).fillRoundedRect(left - 4, y - 5, PROGRESS_WIDTH + 8, 10, 5);
-    this.progressBar.fillStyle(0xffd24a, 1).fillRoundedRect(left - 2, y - 3, Math.max(4, PROGRESS_WIDTH * ratio + 4), 6, 3);
-    this.progressHero.setX(left + PROGRESS_WIDTH * ratio);
+    this.progressFill.setScale(Math.max(0.02, ratio), 1);
+    this.progressHero.setPosition(left + PROGRESS_WIDTH * ratio, y);
   }
 
   private createPauseButton(): void {
     const x = GAME_WIDTH - 42;
     const y = 40;
-    const button = this.add.graphics().setScrollFactor(0).setDepth(903);
-    button.fillStyle(0xfff7dc, 0.85).fillCircle(x, y, 27).lineStyle(3, 0x6d4a00, 0.9).strokeCircle(x, y, 27);
-    button.fillStyle(0x5a3a00, 1).fillRoundedRect(x - 10, y - 11, 7, 22, 2).fillRoundedRect(x + 3, y - 11, 7, 22, 2);
+    bakedImage(this, `pause-button-${GAME_WIDTH}`, { x: x - 30, y: y - 30, width: 60, height: 60 }, (g) => {
+      g.fillStyle(0xfff7dc, 0.85).fillCircle(x, y, 27).lineStyle(3, 0x6d4a00, 0.9).strokeCircle(x, y, 27);
+      g.fillStyle(0x5a3a00, 1).fillRoundedRect(x - 10, y - 11, 7, 22, 2).fillRoundedRect(x + 3, y - 11, 7, 22, 2);
+    }).setScrollFactor(0).setDepth(903);
     this.add
       .zone(x, y, 70, 70)
       .setScrollFactor(0)
@@ -757,8 +821,10 @@ export class StageScene extends Phaser.Scene {
   }
 
   private drawHud(): void {
-    const g = this.hud;
-    g.clear();
+    bakeTexture(this, 'hud-layer', GAME_WIDTH, 100, (g) => this.paintHud(g), true);
+  }
+
+  private paintHud(g: Phaser.GameObjects.Graphics): void {
 
     // Hearts: one per health point, easy to count at a glance.
     const max = this.player.maxHealth;
@@ -786,27 +852,20 @@ export class StageScene extends Phaser.Scene {
   }
 
   private updateBossBar(): void {
-    if (!this.bossBar) {
+    if (!this.bossBarFrame || !this.bossBarFill) {
       return;
     }
 
-    this.bossBar.clear();
     const show = Boolean(this.boss?.active) && Math.abs(this.boss!.x - this.player.x) < BOSS_BAR_RANGE;
     this.bossBarName?.setVisible(show);
     Music.setBattle(show && !this.stageCleared);
-    if (!show || !this.boss) {
-      return;
+    if (show && !this.bossSpotted) {
+      this.bossSpotted = true;
+      this.companionSay({ '저팔계': '저기 보스야! 조심해, 형님!', '사오정': '공격이 끝나면 다가가요!', '삼장법사': '침착하게 살피거라.' });
     }
-
-    const width = 360;
-    const x = (GAME_WIDTH - width) / 2;
-    const y = 128;
-    this.bossBar.fillStyle(0x23160a, 0.85);
-    this.bossBar.fillRoundedRect(x, y, width, 18, 6);
-    this.bossBar.fillStyle(0xe74b3c, 1);
-    this.bossBar.fillRoundedRect(x + 3, y + 3, (width - 6) * this.boss.hpRatio, 12, 4);
-    this.bossBar.lineStyle(2, 0xffdf73, 0.9);
-    this.bossBar.strokeRoundedRect(x, y, width, 18, 6);
+    this.bossBarFrame.setVisible(show);
+    this.bossBarFill.setVisible(show);
+    if (show && this.boss) this.bossBarFill.setScale(Math.max(0.01, this.boss.hpRatio), 1);
   }
 
   private handlePlayerEnemyCollision(enemy: Enemy): void {
@@ -863,6 +922,9 @@ export class StageScene extends Phaser.Scene {
     coin.destroy();
     this.coinCount += 1;
     Sfx.coin();
+    if (this.coinCount === this.totalCoins) {
+      this.companionSay({ '저팔계': '와! 코인을 하나도 안 빼고 다 모았어!', '사오정': '코인을 모두 모았어요!', '삼장법사': '꼼꼼하게 다 모았구나.' });
+    }
     if (this.stage.id === 'stage-01' && this.coinCount === REQUIRED_COINS) {
       this.showFloatingMessage('코인을 다 모았어요! 화과산으로 가요 →', 1800);
     }
@@ -894,6 +956,18 @@ export class StageScene extends Phaser.Scene {
 
   private handlePlayerDamaged(): void {
     this.updateUi();
+    // Once per chapter, a companion steps in when the hero is nearly out of hearts.
+    if (this.player.health > 0 && this.player.health <= 2 && !this.companionHelpUsed && this.companions.length > 0) {
+      this.companionHelpUsed = true;
+      this.companionSay({ '삼장법사': '힘내라, 오공아! 내가 도와주마.', '저팔계': '형님, 이거 먹고 힘내!', '사오정': '형님, 제가 도울게요!' }, 2400);
+      this.time.delayedCall(450, () => {
+        if (this.stageCleared || this.player.health <= 0) return;
+        this.player.heal(2);
+        Sfx.heal();
+        this.showFloatingMessage('친구가 도와줬어요! 하트 +2', 1500, '#baff8a');
+        this.updateUi();
+      });
+    }
     if (this.player.health > 0) {
       return;
     }
@@ -1050,9 +1124,10 @@ export class StageScene extends Phaser.Scene {
     if (!entry || !StageManager.recordDiscovery(key)) return;
     Sfx.discover();
     this.discoveryToast?.destroy();
-    const panel = this.add.graphics();
-    panel.fillStyle(0x2a1a08, 0.88).fillRoundedRect(-262, 0, 262, 66, 16);
-    panel.lineStyle(3, 0xffd24a, 1).strokeRoundedRect(-262, 0, 262, 66, 16);
+    const panel = bakedImage(this, 'discovery-panel', { x: -264, y: -2, width: 266, height: 70 }, (g) => {
+      g.fillStyle(0x2a1a08, 0.88).fillRoundedRect(-262, 0, 262, 66, 16);
+      g.lineStyle(3, 0xffd24a, 1).strokeRoundedRect(-262, 0, 262, 66, 16);
+    });
     const picture = this.add.image(-226, 33, key);
     picture.setScale(54 / picture.height);
     const heading = this.add.text(-190, 10, '요괴 도감에 새로 등록!', { color: '#ffd75e', fontSize: '15px', fontStyle: 'bold' });
@@ -1086,19 +1161,19 @@ export class StageScene extends Phaser.Scene {
     this.tip?.destroy();
     const label = this.add.text(30, 0, text, { ...hudText(20), wordWrap: { width: 560 } }).setOrigin(0, 0.5);
     const width = label.width + 92;
-    const panel = this.add.graphics();
-    panel.fillStyle(0x2a1a08, 0.82).fillRoundedRect(-width / 2, -30, width, 60, 18);
-    panel.lineStyle(3, 0xffd24a, 0.9).strokeRoundedRect(-width / 2, -30, width, 60, 18);
     label.setX(-width / 2 + 74);
-    const icon = this.add.graphics();
     const cx = -width / 2 + 40;
-    icon.fillStyle(0xfff7dc, 1).fillCircle(cx, 0, 22).lineStyle(3, 0x6d4a00, 1).strokeCircle(cx, 0, 22);
-    icon.fillStyle(0x5a3a00, 1);
-    if (id === 'move') icon.fillTriangle(cx - 14, 0, cx - 4, -8, cx - 4, 8).fillTriangle(cx + 14, 0, cx + 4, -8, cx + 4, 8);
-    if (id === 'jump') icon.fillTriangle(cx, -12, cx - 9, 0, cx + 9, 0).fillRect(cx - 3, 0, 6, 9);
-    if (id === 'attack') icon.lineStyle(5, 0xc98a00, 1).lineBetween(cx - 10, 7, cx + 10, -9);
-    if (id === 'cloud') icon.fillStyle(0x9fd8ff, 1).fillCircle(cx - 8, 4, 7).fillCircle(cx + 1, -2, 9).fillCircle(cx + 10, 4, 7);
-    this.tip = this.add.container(GAME_WIDTH / 2, 206, [panel, icon, label]).setScrollFactor(0).setDepth(905).setAlpha(0);
+    const panel = bakedImage(this, `tip-${id}-${Math.round(width)}`, { x: -width / 2 - 2, y: -32, width: width + 4, height: 64 }, (g) => {
+      g.fillStyle(0x2a1a08, 0.82).fillRoundedRect(-width / 2, -30, width, 60, 18);
+      g.lineStyle(3, 0xffd24a, 0.9).strokeRoundedRect(-width / 2, -30, width, 60, 18);
+      g.fillStyle(0xfff7dc, 1).fillCircle(cx, 0, 22).lineStyle(3, 0x6d4a00, 1).strokeCircle(cx, 0, 22);
+      g.fillStyle(0x5a3a00, 1);
+      if (id === 'move') g.fillTriangle(cx - 14, 0, cx - 4, -8, cx - 4, 8).fillTriangle(cx + 14, 0, cx + 4, -8, cx + 4, 8);
+      if (id === 'jump') g.fillTriangle(cx, -12, cx - 9, 0, cx + 9, 0).fillRect(cx - 3, 0, 6, 9);
+      if (id === 'attack') g.lineStyle(5, 0xc98a00, 1).lineBetween(cx - 10, 7, cx + 10, -9);
+      if (id === 'cloud') g.fillStyle(0x9fd8ff, 1).fillCircle(cx - 8, 4, 7).fillCircle(cx + 1, -2, 9).fillCircle(cx + 10, 4, 7);
+    });
+    this.tip = this.add.container(GAME_WIDTH / 2, 206, [panel, label]).setScrollFactor(0).setDepth(905).setAlpha(0);
     const tip = this.tip;
     this.tweens.add({ targets: tip, alpha: 1, y: 200, duration: 260 });
     this.tweens.add({ targets: tip, alpha: 0, delay: duration, duration: 400, onComplete: () => tip.destroy() });

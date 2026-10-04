@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from '../constants';
+import { bakedImage } from './bake';
 
 const PANEL_HEIGHT = 178;
 const PANEL_TOP = GAME_HEIGHT - PANEL_HEIGHT - 12;
@@ -33,7 +34,7 @@ const portraits: Record<string, string> = {
 type Page = { speaker?: string; text: string };
 
 export class DialogueBox {
-  private panel: Phaser.GameObjects.Graphics;
+  private panel: Phaser.GameObjects.Image;
   private nameTag: Phaser.GameObjects.Text;
   private text: Phaser.GameObjects.Text;
   private progress: Phaser.GameObjects.Text;
@@ -51,10 +52,11 @@ export class DialogueBox {
   private fullText = '';
 
   constructor(private readonly scene: Phaser.Scene) {
-    this.panel = scene.add.graphics().setScrollFactor(0).setDepth(2000).setVisible(false);
-    this.panel.fillStyle(0x1d140b, 0.92).fillRoundedRect(20, PANEL_TOP, GAME_WIDTH - 40, PANEL_HEIGHT, 18);
-    this.panel.lineStyle(4, 0xffd24a, 0.95).strokeRoundedRect(20, PANEL_TOP, GAME_WIDTH - 40, PANEL_HEIGHT, 18);
-    this.panel.fillStyle(0xfff3c9, 0.14).fillRoundedRect(38, PANEL_TOP + 22, 124, 134, 14);
+    this.panel = bakedImage(scene, `dialogue-panel-${GAME_WIDTH}`, { x: 16, y: PANEL_TOP - 4, width: GAME_WIDTH - 32, height: PANEL_HEIGHT + 8 }, (g) => {
+      g.fillStyle(0x1d140b, 0.92).fillRoundedRect(20, PANEL_TOP, GAME_WIDTH - 40, PANEL_HEIGHT, 18);
+      g.lineStyle(4, 0xffd24a, 0.95).strokeRoundedRect(20, PANEL_TOP, GAME_WIDTH - 40, PANEL_HEIGHT, 18);
+      g.fillStyle(0xfff3c9, 0.14).fillRoundedRect(38, PANEL_TOP + 22, 124, 134, 14);
+    }).setScrollFactor(0).setDepth(2000).setVisible(false);
 
     this.portrait = scene.add.image(100, PANEL_TOP + 90, 'story-scroll').setScrollFactor(0).setDepth(2001).setVisible(false);
 

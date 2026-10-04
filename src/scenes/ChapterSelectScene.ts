@@ -6,7 +6,8 @@ import { stages } from '../game/data/stages';
 import { StageManager } from '../game/StageManager';
 import { addCoverBackground } from '../ui/background';
 import { createButton } from '../ui/Button';
-import { drawStar } from '../ui/stars';
+import { bakeTexture } from '../ui/bake';
+import { starTexture } from '../ui/stars';
 
 const CARD_WIDTH = 204;
 const CARD_HEIGHT = 112;
@@ -49,15 +50,13 @@ export class ChapterSelectScene extends Phaser.Scene {
   private createCard(x: number, y: number, stageId: string, chapter: number, title: string, unlocked: boolean): void {
     const card = this.add.container(x, y).setSize(CARD_WIDTH, CARD_HEIGHT);
     this.cards.set(stageId, card);
-    const background = this.add.graphics();
-    const paint = (pressed: boolean) => {
-      background.clear();
-      background.fillStyle(0x000000, 0.25).fillRoundedRect(-CARD_WIDTH / 2 + 3, -CARD_HEIGHT / 2 + 5, CARD_WIDTH, CARD_HEIGHT, 16);
-      background.fillStyle(unlocked ? (pressed ? 0xffe17a : 0xfff3cf) : 0x6e6352, unlocked ? 0.97 : 0.85);
-      background.fillRoundedRect(-CARD_WIDTH / 2, -CARD_HEIGHT / 2, CARD_WIDTH, CARD_HEIGHT, 16);
-      background.lineStyle(3, unlocked ? 0x8a5a1a : 0x4a4236, 1).strokeRoundedRect(-CARD_WIDTH / 2, -CARD_HEIGHT / 2, CARD_WIDTH, CARD_HEIGHT, 16);
-    };
-    paint(false);
+    const look = (pressed: boolean) => bakeTexture(this, `chapter-card-${unlocked}-${pressed}`, CARD_WIDTH + 6, CARD_HEIGHT + 8, (g) => {
+      g.fillStyle(0x000000, 0.25).fillRoundedRect(4, 6, CARD_WIDTH, CARD_HEIGHT, 16);
+      g.fillStyle(unlocked ? (pressed ? 0xffe17a : 0xfff3cf) : 0x6e6352, unlocked ? 0.97 : 0.85).fillRoundedRect(1, 1, CARD_WIDTH, CARD_HEIGHT, 16);
+      g.lineStyle(3, unlocked ? 0x8a5a1a : 0x4a4236, 1).strokeRoundedRect(1, 1, CARD_WIDTH, CARD_HEIGHT, 16);
+    });
+    const background = this.add.image(-CARD_WIDTH / 2 - 1, -CARD_HEIGHT / 2 - 1, look(false)).setOrigin(0);
+    const paint = (pressed: boolean) => background.setTexture(look(pressed));
     card.add(background);
     card.add(this.add.text(-CARD_WIDTH / 2 + 14, -CARD_HEIGHT / 2 + 10, `제 ${chapter}장`, {
       color: unlocked ? '#a13a22' : '#cfc3a8', fontSize: '17px', fontStyle: 'bold'
@@ -67,10 +66,8 @@ export class ChapterSelectScene extends Phaser.Scene {
     }).setOrigin(0.5));
 
     if (!unlocked) return;
-    const stars = this.add.graphics();
     const earned = StageManager.getStars(stageId);
-    for (let index = 0; index < 3; index += 1) drawStar(stars, (index - 1) * 30, CARD_HEIGHT / 2 - 20, 11, index < earned);
-    card.add(stars);
+    for (let index = 0; index < 3; index += 1) card.add(this.add.image((index - 1) * 30, CARD_HEIGHT / 2 - 20, starTexture(this, 11, index < earned)));
 
     card.setInteractive({ useHandCursor: true });
     card.on('pointerdown', () => paint(true));

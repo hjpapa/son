@@ -15,7 +15,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private pauseTimer = 0;
   private dashTimer = 0;
   private stunnedUntil = 0;
-  private healthBar?: Phaser.GameObjects.Graphics;
+  // Plain rectangles: cheap to move every frame, unlike rebuilt Graphics.
+  private healthBar?: { back: Phaser.GameObjects.Rectangle; fill: Phaser.GameObjects.Rectangle };
   private groundShadow?: Phaser.GameObjects.Ellipse;
 
   constructor(scene: Phaser.Scene, private readonly config: EnemyData) {
@@ -67,7 +68,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
 
     if (config.type !== 'boss' && config.hp > 1) {
-      this.healthBar = scene.add.graphics().setDepth(40);
+      this.healthBar = {
+        back: scene.add.rectangle(0, 0, 48, 7, 0x2c1b12, 0.85).setOrigin(0).setDepth(40),
+        fill: scene.add.rectangle(0, 0, 44, 3, 0x71c94b).setOrigin(0).setDepth(41)
+      };
       this.updateHealthBar();
     }
   }
@@ -131,7 +135,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     this.disableBody(true, true);
     this.sparkle(12);
-    this.healthBar?.destroy();
+    this.healthBar?.back.destroy();
+    this.healthBar?.fill.destroy();
     this.groundShadow?.destroy();
     const hitText = this.scene.add
       .text(this.x, this.y - 48, '퍽!', {
@@ -260,14 +265,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private updateHealthBar(): void {
     if (!this.healthBar || !this.active) return;
 
-    const width = 48;
     const ratio = Phaser.Math.Clamp(this.hp / this.maxHp, 0, 1);
-    const x = this.x - width / 2;
+    const x = this.x - 24;
     const y = this.y - this.displayHeight - 10;
-    this.healthBar.clear();
-    this.healthBar.fillStyle(0x2c1b12, 0.85);
-    this.healthBar.fillRoundedRect(x, y, width, 7, 3);
-    this.healthBar.fillStyle(ratio > 0.5 ? 0x71c94b : 0xf2a23a, 1);
-    this.healthBar.fillRoundedRect(x + 2, y + 2, (width - 4) * ratio, 3, 2);
+    this.healthBar.back.setPosition(x, y);
+    this.healthBar.fill.setPosition(x + 2, y + 2).setScale(Math.max(0.02, ratio), 1).setFillStyle(ratio > 0.5 ? 0x71c94b : 0xf2a23a);
   }
 }

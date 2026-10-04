@@ -6,6 +6,7 @@ import { bestiary } from '../game/data/bestiary';
 import { stages } from '../game/data/stages';
 import { StageManager } from '../game/StageManager';
 import { addCoverBackground } from '../ui/background';
+import { bakeTexture } from '../ui/bake';
 import { createButton } from '../ui/Button';
 
 const CARD_WIDTH = 188;
@@ -17,7 +18,7 @@ export class BestiaryScene extends Phaser.Scene {
   private chapters: number[] = [];
   private page = 0;
   private pageLayer?: Phaser.GameObjects.Container;
-  private dots?: Phaser.GameObjects.Graphics;
+  private dots: Phaser.GameObjects.Arc[] = [];
 
   constructor() {
     super('BestiaryScene');
@@ -43,7 +44,8 @@ export class BestiaryScene extends Phaser.Scene {
     createButton(this, 96, 36, '← 돌아가기', () => this.scene.start('TitleScene'), { width: 164, height: 50, fontSize: 20 });
     createButton(this, 46, 290, '◀', () => this.turn(-1), { width: 64, height: 90, fontSize: 30 });
     createButton(this, GAME_WIDTH - 46, 290, '▶', () => this.turn(1), { width: 64, height: 90, fontSize: 30 });
-    this.dots = this.add.graphics();
+    const dotsLeft = GAME_WIDTH / 2 - ((this.chapters.length - 1) * 18) / 2;
+    this.dots = this.chapters.map((_, index) => this.add.circle(dotsLeft + index * 18, GAME_HEIGHT - 26, 5, 0x8a7a5a));
 
     // Swiping left or right also turns the page.
     this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
@@ -83,11 +85,12 @@ export class BestiaryScene extends Phaser.Scene {
       const x = left + index * (CARD_WIDTH + gap) + CARD_WIDTH / 2;
       const y = 290;
       const known = discovered.has(entry.key);
-      const card = this.add.graphics();
-      card.fillStyle(0x000000, 0.25).fillRoundedRect(x - CARD_WIDTH / 2 + 3, y - CARD_HEIGHT / 2 + 5, CARD_WIDTH, CARD_HEIGHT, 18);
-      card.fillStyle(known ? 0xfff3cf : 0x5e5446, 0.97).fillRoundedRect(x - CARD_WIDTH / 2, y - CARD_HEIGHT / 2, CARD_WIDTH, CARD_HEIGHT, 18);
-      card.lineStyle(4, entry.boss ? 0xc23b22 : 0x8a5a1a, 1).strokeRoundedRect(x - CARD_WIDTH / 2, y - CARD_HEIGHT / 2, CARD_WIDTH, CARD_HEIGHT, 18);
-      layer.add(card);
+      const look = bakeTexture(this, `bestiary-card-${known}-${entry.boss}`, CARD_WIDTH + 8, CARD_HEIGHT + 10, (g) => {
+        g.fillStyle(0x000000, 0.25).fillRoundedRect(5, 7, CARD_WIDTH, CARD_HEIGHT, 18);
+        g.fillStyle(known ? 0xfff3cf : 0x5e5446, 0.97).fillRoundedRect(2, 2, CARD_WIDTH, CARD_HEIGHT, 18);
+        g.lineStyle(4, entry.boss ? 0xc23b22 : 0x8a5a1a, 1).strokeRoundedRect(2, 2, CARD_WIDTH, CARD_HEIGHT, 18);
+      });
+      layer.add(this.add.image(x - CARD_WIDTH / 2 - 2, y - CARD_HEIGHT / 2 - 2, look).setOrigin(0));
 
       const picture = this.add.image(x, y - 50, entry.key);
       picture.setScale(150 / picture.height);
@@ -107,10 +110,6 @@ export class BestiaryScene extends Phaser.Scene {
     });
 
     // Page dots.
-    this.dots?.clear();
-    const dotsLeft = GAME_WIDTH / 2 - ((this.chapters.length - 1) * 18) / 2;
-    this.chapters.forEach((_, index) => {
-      this.dots?.fillStyle(index === this.page ? 0xffd24a : 0x8a7a5a, 1).fillCircle(dotsLeft + index * 18, GAME_HEIGHT - 26, index === this.page ? 6 : 4);
-    });
+    this.dots.forEach((dot, index) => dot.setFillStyle(index === this.page ? 0xffd24a : 0x8a7a5a).setScale(index === this.page ? 1.3 : 0.8));
   }
 }

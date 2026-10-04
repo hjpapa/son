@@ -318,7 +318,7 @@ test.describe('phone', () => {
     const result = await page.evaluate(() => {
       const s = (window as any).__GAME__.scene.getScene('StageScene');
       const controls = s.mobileControls;
-      const visible = controls.buttons.every((button: any) => button.graphics.visible);
+      const visible = controls.buttons.every((button: any) => button.image.visible);
       // Two fingers; lifting one keeps the other held.
       controls.held.set(1, 'right'); controls.held.set(2, 'jump');
       controls.release({ id: 2 });
@@ -687,4 +687,70 @@ test('pause menu restarts the chapter; replayed chapters offer a skip button for
     return { coins: s.coinCount, visible, closed: !s.dialogue.isOpen };
   });
   expect(restarted).toEqual({ coins: 0, visible: true, closed: true });
+});
+
+test('companions warn about hazards and, once per chapter, heal the hero when hearts run low', async ({ page }) => {
+  await openStage(page, 8);
+  await page.evaluate(async () => {
+    const { StageManager } = await import('/src/game/StageManager.ts');
+    StageManager.markStageCleared('stage-07'); // all three friends have joined
+    (window as any).__GAME__.scene.getScene('StageScene').scene.restart({ stageId: 'stage-08' });
+  });
+  await page.waitForFunction(() => (window as any).__GAME__.scene.getScene('StageScene').dialogue?.isOpen);
+  await dismiss(page);
+  expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').companions)).toEqual(['삼장법사', '저팔계', '사오정']);
+
+  await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    s.storyBeatsSeen = new Set(['trail', 'encounter']);
+    s.player.body.reset(s.stage.hazards[0].x - 250, 432);
+  });
+  await expect.poll(() => page.evaluate(() => Boolean((window as any).__GAME__.scene.getScene('StageScene').speech))).toBe(true);
+
+  const hearts = await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    s.player.currentHealth = 3;
+    s.player.invulnerable = false;
+    s.player.takeDamage(1);
+    s.handlePlayerDamaged();
+    return s.player.health;
+  });
+  expect(hearts).toBe(2);
+  await expect.poll(() => page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').player.health)).toBe(4);
+  // Only once per chapter.
+  const again = await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    s.player.currentHealth = 2;
+    s.handlePlayerDamaged();
+    return s.companionHelpUsed;
+  });
+  expect(again).toBe(true);
+  await page.waitForTimeout(700);
+  expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').player.health)).toBe(2);
+});
+
+test('after 30 minutes of play the clear screen suggests a break, and it holds the next chapter', async ({ page }) => {
+  await openStage(page, 2);
+  await dismiss(page);
+  await page.evaluate(async () => {
+    const { PlayTime } = await import('/src/game/playTime.ts');
+    PlayTime.set(31 * 60 * 1000);
+    (window as any).__GAME__.scene.getScene('StageScene').completeStage();
+  });
+  await dismiss(page);
+  await page.waitForFunction(() => (window as any).__GAME__.scene.isActive('StageClearScene'));
+  await page.waitForTimeout(1300);
+  await page.keyboard.press('Enter'); // must not skip past the suggestion
+  await page.waitForTimeout(300);
+  const state = await page.evaluate(async () => {
+    const { PlayTime } = await import('/src/game/playTime.ts');
+    const clear = (window as any).__GAME__.scene.getScene('StageClearScene');
+    return { stillHere: clear.scene.isActive(), panel: clear.breakPanel, due: PlayTime.breakDue };
+  });
+  expect(state).toEqual({ stillHere: true, panel: true, due: false });
+  await page.evaluate(() => {
+    const clear = (window as any).__GAME__.scene.getScene('StageClearScene');
+    clear.children.list.find((item: any) => item.getData?.('label')?.text === '조금만 더 할래요').emit('pointerup');
+  });
+  expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageClearScene').breakPanel)).toBe(false);
 });
