@@ -28,6 +28,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private jumpBufferedUntil = 0;
   private cloudJumpUnlocked = false;
   private cloudJumpUsed = false;
+  private cloudRide = false;
 
   constructor(scene: Phaser.Scene, x: number, y: number, maxHealth = 6) {
     super(scene, x, y, 'corn-wukong-clean-idle');
@@ -58,8 +59,19 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   }
 
   setStaffUpgraded(upgraded: boolean): void {
-    this.staffUpgraded = upgraded;
+    if (this.staffUpgraded !== upgraded) {
+      this.staffUpgraded = upgraded;
+      const pose = this.currentPose ?? 'idle';
+      this.currentPose = undefined;
+      this.setPose(pose);
+    }
     this.updateStaffGlow();
+  }
+
+  setCloudRide(enabled: boolean): void {
+    this.cloudRide = enabled;
+    (this.body as Phaser.Physics.Arcade.Body).setAllowGravity(!enabled);
+    this.setVelocity(0, 0);
   }
 
   setMovementMultiplier(multiplier: number): void {
@@ -93,6 +105,20 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   update(input: PlayerInputState): void {
     const body = this.body as Phaser.Physics.Arcade.Body;
     const now = this.scene.time.now;
+    if (this.cloudRide) {
+      this.facing = 1;
+      body.setVelocityX(input.left ? 95 : input.right ? 305 : 210);
+      body.setVelocityY(input.jump ? -150 : 110);
+      if (this.y <= 205 && body.velocity.y < 0 || this.y >= 408 && body.velocity.y > 0) body.setVelocityY(0);
+      this.setY(Phaser.Math.Clamp(this.y, 205, 408));
+      this.setFlipX(false);
+      this.setPose('crouch');
+      this.setAngle(input.jump ? -3 : 2);
+      this.updateStaffGlow();
+      this.previousJump = input.jump;
+      this.previousAttack = input.attack;
+      return;
+    }
     const grounded = body.blocked.down || body.touching.down;
     const crouching = input.down && grounded && !this.attacking;
     const jumpPressed = input.jump && !this.previousJump;
@@ -149,7 +175,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   }
 
   showStaffUpgradeEffect(): void {
-    this.staffUpgraded = true;
+    this.setStaffUpgraded(true);
     this.setAttackRangeMultiplier(Math.max(this.attackRangeMultiplier, 1.25));
     this.setTint(0xfff17a);
     this.scene.time.delayedCall(500, () => this.clearTint());
@@ -339,7 +365,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     const next = poses[pose];
 
     this.currentPose = pose;
-    this.setTexture(next.key);
+    this.setTexture(this.staffUpgraded ? `corn-wukong-golden-${pose}` : next.key);
     this.setDisplaySize(next.width, next.height);
 
     const body = this.body as Phaser.Physics.Arcade.Body;
@@ -353,20 +379,16 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
   private updateStaffGlow(): void {
     this.staffGlow.clear();
-    if (!this.staffUpgraded || !this.attacking) {
+    if (!this.staffUpgraded || !this.attackHitActive) {
       return;
     }
 
-    const body = this.body as Phaser.Physics.Arcade.Body;
-    const reach = 112 * this.attackRangeMultiplier;
-    const startX = this.facing > 0 ? body.center.x + 20 : body.center.x - 20;
-    const endX = startX + this.facing * reach;
-    const y = this.y - 63;
-    const endY = y - 5;
-
-    this.staffGlow.lineStyle(14, 0xffd84a, 0.22);
-    this.staffGlow.lineBetween(startX, y, endX, endY);
-    this.staffGlow.lineStyle(5, 0xffc928, 0.7);
-    this.staffGlow.lineBetween(startX, y, endX, endY);
+    // A short impact crescent at the actual hit area, never a second shaft.
+    const hit = this.getAttackBounds();
+    const tip = this.facing > 0 ? hit.right : hit.left;
+    this.staffGlow.lineStyle(4, 0xffe8a3, 0.65);
+    this.staffGlow.beginPath();
+    this.staffGlow.arc(tip - this.facing * 14, hit.centerY, 28, this.facing > 0 ? -1.0 : Math.PI - 1.0, this.facing > 0 ? 1.0 : Math.PI + 1.0);
+    this.staffGlow.strokePath();
   }
 }

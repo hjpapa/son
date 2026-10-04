@@ -106,7 +106,7 @@ const stageLayouts: Array<Omit<StageData, 'startDialogue' | 'clearDialogue'>> = 
   },
   {
     id: 'stage-02', chapter: 2, title: '혼세마왕의 동굴', subtitle: '친구들을 괴롭히는 첫 번째 마왕',
-    objective: '혼세마왕을 물리치고 동굴 밖으로 나가요!', lesson: '강한 힘에는 친구를 지킬 책임이 따라요.',
+    objective: '미로 인장 3개를 찾고 혼세마왕을 물리쳐요!', lesson: '강한 힘에는 친구를 지킬 책임이 따라요.',
     backgroundKey: 'cave', musicKey: 'stage-cave', worldWidth: 3100,
     playerStart: { x: 220, y: 382 }, goalX: 2820, goalLabel: '동굴 출구', clearMode: 'boss',
     enemies: [
@@ -115,7 +115,7 @@ const stageLayouts: Array<Omit<StageData, 'startDialogue' | 'clearDialogue'>> = 
       { type: 'charger', name: '뿔 도깨비', x: 1900, y: groundY - 44, hp: 2, damage: 1, speed: 78, patrolRange: 160, spriteKey: 'enemy-horn' }
     ],
     boss: { type: 'boss', name: '혼세마왕', x: 2470, y: groundY - 74, hp: 5, maxHp: 5, damage: 1, speed: 62, patrolRange: 180, spriteKey: 'boss-honse', attackStyle: 'flame' },
-    hazards: [{ type: 'spikes', x: 1040, y: 423, width: 120, label: '뾰족 바위' }], platforms: [{ x: 600, y: 350, width: 200 }, { x: 1040, y: 342, width: 170 }, { x: 1450, y: 350, width: 200 }, { x: 1720, y: 310, width: 170 }, { x: 2100, y: 318, width: 200 }, { x: 2300, y: 312, width: 160 }], gimmicks: [],
+    hazards: [], platforms: [{ x: 600, y: 350, width: 200 }, { x: 1040, y: 302, width: 240 }, { x: 1215, y: 227, width: 230 }, { x: 1640, y: 310, width: 180 }, { x: 2100, y: 318, width: 200 }, { x: 2300, y: 312, width: 160 }], gimmicks: [],
     nextStageId: 'stage-03'
   },
   {
@@ -136,7 +136,7 @@ const stageLayouts: Array<Omit<StageData, 'startDialogue' | 'clearDialogue'>> = 
   },
   {
     id: 'stage-04', chapter: 4, title: '천궁의 추격전', subtitle: '이랑진군과 구름 병사들의 추격',
-    objective: '번개를 피해 20초 동안 달려요!', lesson: '때로는 싸우는 것보다 현명하게 피하는 용기가 필요해요.',
+    objective: '번개를 피해 20초 버티고 구름문으로 탈출해요!', lesson: '때로는 싸우는 것보다 현명하게 피하는 용기가 필요해요.',
     backgroundKey: 'skywar', musicKey: 'stage-skywar', worldWidth: 3300,
     playerStart: { x: 220, y: 382 }, goalX: 3050, goalLabel: '구름문', clearMode: 'survive',
     enemies: [
@@ -195,7 +195,7 @@ const stageLayouts: Array<Omit<StageData, 'startDialogue' | 'clearDialogue'>> = 
   },
   {
     id: 'stage-08', chapter: 8, title: '황풍대왕의 바람산', subtitle: '눈을 뜨기 힘든 거센 황풍',
-    objective: '바람을 견디며 황풍대왕을 물리쳐요!', lesson: '중심을 잡고 한 걸음씩 나아가면 어려움도 지나가요.',
+    objective: '근두운 레이싱을 마치고 황풍대왕을 물리쳐요!', lesson: '중심을 잡고 한 걸음씩 나아가면 어려움도 지나가요.',
     backgroundKey: 'wind', musicKey: 'stage-wind', worldWidth: 3200,
     playerStart: { x: 220, y: 382 }, goalX: 2920, goalLabel: '바람 고개', clearMode: 'boss',
     enemies: [
@@ -210,7 +210,7 @@ const stageLayouts: Array<Omit<StageData, 'startDialogue' | 'clearDialogue'>> = 
   },
   {
     id: 'stage-09', chapter: 9, title: '호선봉의 어둠숲', subtitle: '빠른 발톱과 가짜 그림자',
-    objective: '호선봉이 돌진 뒤 멈출 때 공격해요!', lesson: '무서워도 침착하게 관찰하면 방법을 찾을 수 있어요.',
+    objective: '숲의 미로 인장 3개를 찾고 호선봉을 물리쳐요!', lesson: '무서워도 침착하게 관찰하면 방법을 찾을 수 있어요.',
     backgroundKey: 'forest', musicKey: 'stage-forest', worldWidth: 3200,
     playerStart: { x: 220, y: 382 }, goalX: 2920, goalLabel: '숲의 출구', clearMode: 'boss',
     enemies: [
@@ -219,7 +219,7 @@ const stageLayouts: Array<Omit<StageData, 'startDialogue' | 'clearDialogue'>> = 
       { type: 'flyer', name: '그림자 나방', x: 2080, y: 250, hp: 2, damage: 1, speed: 90, patrolRange: 190, spriteKey: 'enemy-moth' }
     ],
     boss: { type: 'boss', name: '호선봉', x: 2550, y: groundY - 76, hp: 7, maxHp: 7, damage: 1, speed: 82, patrolRange: 220, spriteKey: 'boss-tiger', attackStyle: 'claw' },
-    hazards: [{ type: 'spikes', x: 1770, y: 423, width: 130, label: '가시덩굴' }], platforms: [{ x: 650, y: 345, width: 180 }, { x: 1000, y: 310, width: 160 }, { x: 1300, y: 350, width: 170 }, { x: 1770, y: 342, width: 170 }, { x: 2050, y: 318, width: 170 }, { x: 2400, y: 318, width: 160 }, { x: 2700, y: 318, width: 160 }], gimmicks: [],
+    hazards: [], platforms: [{ x: 650, y: 345, width: 180 }, { x: 1040, y: 302, width: 240 }, { x: 1215, y: 227, width: 230 }, { x: 1640, y: 310, width: 180 }, { x: 2050, y: 318, width: 170 }, { x: 2400, y: 318, width: 160 }, { x: 2700, y: 318, width: 160 }], gimmicks: [],
     nextStageId: 'stage-10'
   },
   {

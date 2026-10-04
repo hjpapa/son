@@ -72,9 +72,15 @@ async function sprites() {
     const source = `art-source/sprites/${from}`;
     const target = `public/assets/sprites/${to}`;
     const input = matte ? await removeWhiteMatte(source) : source;
-    await sharp(input).resize({ height: SPRITE_HEIGHT }).webp(WEBP).toFile(target);
+    await sharp(input).trim().resize({ height: SPRITE_HEIGHT }).webp(WEBP).toFile(target);
     original += await size(source);
     optimized += await size(target);
+  }
+  for (const pose of ['idle', 'run', 'attack', 'crouch']) {
+    const source = `art-source/sprites/corn-wukong-golden-${pose}.png`;
+    const target = `public/assets/sprites/corn-wukong-golden-${pose}.webp`;
+    await sharp(source).trim().resize({ height: SPRITE_HEIGHT }).webp(WEBP).toFile(target);
+    original += await size(source); optimized += await size(target);
   }
   console.log(`Hero sprites: ${mb(original)} -> ${mb(optimized)}`);
 }

@@ -16,6 +16,7 @@ type StageClearInit = {
   coins?: number;
   totalCoins?: number;
   stars?: number;
+  arcade?: string;
 };
 
 // Short pause before buttons work, so the tap that closed the last
@@ -56,6 +57,7 @@ export class StageClearScene extends Phaser.Scene {
 
     this.showStars();
     this.drawJourneyMap(stage.chapter, total);
+    if (this.result.arcade) this.add.text(GAME_WIDTH / 2, 244, this.result.arcade, { color: '#755024', fontSize: '17px', fontStyle: 'bold' }).setOrigin(0.5);
 
     bakedImage(this, `lesson-panel-${GAME_WIDTH}`, { x: GAME_WIDTH / 2 - 332, y: 260, width: 664, height: 82 }, (g) => {
       g.fillStyle(0xf6e2a8, 0.95).fillRoundedRect(GAME_WIDTH / 2 - 330, 262, 660, 78, 16);

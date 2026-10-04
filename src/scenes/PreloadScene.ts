@@ -31,6 +31,9 @@ export class PreloadScene extends Phaser.Scene {
     for (const pose of heroPoses) {
       this.load.image(`corn-wukong-clean-${pose}`, `assets/sprites/corn-wukong-clean-${pose}.webp`);
     }
+    for (const pose of heroPoses) {
+      this.load.image(`corn-wukong-golden-${pose}`, `assets/sprites/corn-wukong-golden-${pose}.webp`);
+    }
     this.load.image('background-cornfield', 'assets/backgrounds/cornfield.webp');
     for (const key of [...characterArt.travelers, ...characterArt.legends]) {
       this.load.image(key, `assets/characters/${key}.webp`);
@@ -39,7 +42,7 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   create(): void {
-    for (const key of [...heroPoses.map((pose) => `corn-wukong-clean-${pose}`), 'background-cornfield']) {
+    for (const key of [...heroPoses.flatMap((pose) => [`corn-wukong-clean-${pose}`, `corn-wukong-golden-${pose}`]), 'background-cornfield']) {
       this.textures.get(key).setFilter(Phaser.Textures.FilterMode.LINEAR);
     }
     this.createItemTextures();
@@ -54,6 +57,22 @@ export class PreloadScene extends Phaser.Scene {
       graphics.generateTexture(key, width, height);
       graphics.destroy();
     };
+
+    draw('maze-seal', 44, 44, g => {
+      g.fillStyle(0xffdd6d).fillCircle(22, 22, 19);
+      g.lineStyle(3, 0x88612c).strokeCircle(22, 22, 19);
+      g.fillStyle(0x9466ba).fillTriangle(22, 8, 10, 30, 34, 30);
+      g.fillStyle(0xffffff).fillCircle(22, 20, 4);
+    });
+    draw('nimbus-cloud', 140, 48, g => {
+      g.fillStyle(0xfff4d2).fillEllipse(70, 30, 132, 30).fillCircle(40, 22, 19).fillCircle(72, 17, 22).fillCircle(102, 23, 17);
+      g.lineStyle(3, 0xe5b65c).strokeEllipse(70, 30, 132, 30).strokeCircle(74, 26, 11);
+    });
+    draw('storm-cloud', 116, 64, g => {
+      g.fillStyle(0x65628d).fillEllipse(58, 29, 110, 36).fillCircle(32, 22, 20).fillCircle(61, 18, 24).fillCircle(87, 24, 19);
+      g.lineStyle(3, 0x333451).strokeEllipse(58, 29, 110, 36);
+      g.fillStyle(0xffdf6c).fillTriangle(56, 29, 45, 52, 66, 46).fillTriangle(51, 46, 63, 44, 48, 63);
+    });
 
     draw('corn-coin', 32, 32, (g) => {
       g.fillStyle(0xffd437, 1).fillEllipse(16, 16, 24, 28);

@@ -220,6 +220,18 @@ test('all 12 chapters: art, story beats, real boss attacks, rewards and ending',
     });
     await page.waitForTimeout(100);
     await dismiss(page);
+    if ([2, 9].includes(chapter)) {
+      // The chapter exit is locked until the new branching maze is solved.
+      for (const index of [0, 1, 2]) {
+        await page.evaluate(index => {
+          const s = (window as any).__GAME__.scene.getScene('StageScene');
+          const seal = s.arcade.seals[index];
+          s.player.body.reset(seal.x, seal.y + 35);
+        }, index);
+        await page.waitForTimeout(180);
+      }
+      expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').arcade.exitReady)).toBe(true);
+    }
     if ([2, 3, 6, 7, 8, 9, 10, 11].includes(chapter)) {
       // Position the player in range, then use the real attack input and collision path.
       for (let swing = 0; swing < 12; swing++) {
@@ -467,7 +479,10 @@ test('terrain: every chapter has its own reachable steps and ledges, and boss ar
       for (const p of stage.platforms) {
         const top = p.y - (p.height ?? 26) / 2;
         const bottom = p.y + (p.height ?? 26) / 2;
-        if (432 - top > 140) issues.push(`${stage.id}: ledge at ${p.x} is too high to reach`);
+        // Chapter 1 has one jump; later chapters can use the learned cloud
+        // jump to gain another ~120px. The @slow test checks actual routes.
+        const maxRise = stage.chapter >= 2 ? 260 : 140;
+        if (432 - top > maxRise) issues.push(`${stage.id}: ledge at ${p.x} exceeds this chapter's jump abilities`);
         if (bottom > 335 && p.y < 340) issues.push(`${stage.id}: platform at ${p.x} is neither a step nor a ledge`);
         const step = p.y >= 340;
         // In the chase chapter the boss follows everywhere; it never teleports into steps.
@@ -578,7 +593,7 @@ test.describe('long phone', () => {
 
 // Real physics and input only: hold right, jump when blocked or an enemy is
 // close, keep swinging. Checks the terrain never traps a player.
-test('a simple walk-and-jump bot can cross every chapter without teleporting @slow', async ({ page }) => {
+test('terrain: a walk-and-jump bot solves every chapter route without teleporting @slow', async ({ page }) => {
   test.setTimeout(480000);
   for (let chapter = 1; chapter <= 12; chapter++) {
     await openStage(page, chapter);
@@ -586,11 +601,30 @@ test('a simple walk-and-jump bot can cross every chapter without teleporting @sl
     const target = await page.evaluate(() => {
       const s = (window as any).__GAME__.scene.getScene('StageScene');
       s.player.takeDamage = () => false;
+      // Isolate the branching maze's terrain; live combat is exercised in the
+      // all-chapters test, which uses real attacks against every boss.
+      if (s.arcade.isMaze) s.enemies.getChildren().forEach((e: any) => e.disableBody(true, true));
       let frame = 0;
+      let mazeStep = 0;
+      const mazePath = [{ x: 820, y: 334 }, { x: 1040, y: 291 }, { x: 1240, y: 230 }];
       s.readInput = () => {
         frame += 1;
         const body = s.player.body;
         const enemyAhead = s.enemies.getChildren().some((e: any) => e.active && e.x > s.player.x && e.x - s.player.x < 170 && Math.abs(e.y - s.player.y) < 140);
+        if (s.arcade.isMaze && !s.arcade.exitReady) {
+          const index = [0, 1, 2].find(i => !s.arcade.state.seals.includes(i))!;
+          let target = s.arcade.seals[index];
+          if (index === 1) {
+            // If a jump misses the upper lane, walk back to its first step.
+            if (mazeStep > 0 && s.player.y > 390) mazeStep = 0;
+            target = mazePath[mazeStep];
+            if (mazeStep < 2 && Math.abs(s.player.x - target.x) < 20 && s.player.y <= target.y + 4 && (body.blocked.down || body.touching.down)) target = mazePath[++mazeStep];
+          }
+          const right = s.player.x < target.x - 8;
+          const left = s.player.x > target.x + 8;
+          const wantsJump = index === 1 && (s.player.y > target.y + 3 || body.blocked.right || body.blocked.left);
+          return { left, right, down: false, jump: wantsJump && frame % 18 < 4, attack: false };
+        }
         const wantsJump = body.blocked.right || body.touching.right || enemyAhead;
         return { left: false, right: true, down: false, jump: wantsJump && frame % 16 < 8, attack: frame % 14 < 2 };
       };
@@ -753,4 +787,117 @@ test('after 30 minutes of play the clear screen suggests a break, and it holds t
     clear.children.list.find((item: any) => item.getData?.('label')?.text === '조금만 더 할래요').emit('pointerup');
   });
   expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageClearScene').breakPanel)).toBe(false);
+});
+
+
+test('maze seals unlock the gate, cannot be bypassed at the exit, and survive a retry', async ({ page }) => {
+  await openStage(page, 2);
+  await dismiss(page);
+  await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    s.storyBeatsSeen = new Set(['trail', 'encounter']);
+    s.player.invulnerable = true;
+    s.bossExitUnlocked = true;
+    s.handleExitReached();
+  });
+  expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').stageCleared)).toBe(false);
+  for (const index of [2, 0, 1]) {
+    await page.evaluate(index => {
+      const s = (window as any).__GAME__.scene.getScene('StageScene');
+      const seal = s.arcade.seals[index];
+      s.player.body.reset(seal.x, seal.y + 35);
+    }, index);
+    await page.waitForTimeout(180);
+  }
+  expect(await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    return { ready: s.arcade.exitReady, solid: s.arcade.gate.body.enable, seals: [...s.arcade.state.seals].sort() };
+  })).toEqual({ready:true,solid:false,seals:[0,1,2]});
+  await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    s.restartStage();
+  });
+  await page.waitForTimeout(2400);
+  expect(await page.evaluate(() => {
+    const a = (window as any).__GAME__.scene.getScene('StageScene').arcade;
+    return {ready:a.exitReady,visible:a.seals.filter((s:any)=>s.visible).length,solid:a.gate.body.enable};
+  })).toEqual({ready:true,visible:0,solid:false});
+});
+
+test('storm locks its warning position, pauses fairly, rewards dodges and damages a direct hit', async ({ page }) => {
+  await openStage(page, 4);
+  await dismiss(page);
+  await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    s.storyBeatsSeen = new Set(['trail','encounter']);
+    s.enemies.getChildren().forEach((e:any)=>e.disableBody(true,true));
+    s.player.body.reset(300,432);
+    s.arcade.stormClock=1490;
+  });
+  await page.waitForFunction(()=>(window as any).__GAME__.scene.getScene('StageScene').arcade.stormPhase==='warning');
+  const x=await page.evaluate(()=>(window as any).__GAME__.scene.getScene('StageScene').arcade.stormX);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(120);
+  const clock=await page.evaluate(()=>(window as any).__GAME__.scene.getScene('StageScene').arcade.stormClock);
+  await page.waitForTimeout(400);
+  expect(await page.evaluate(()=>(window as any).__GAME__.scene.getScene('StageScene').arcade.stormClock)).toBe(clock);
+  await page.keyboard.press('Enter');
+  await page.keyboard.down('ArrowRight');
+  await page.waitForTimeout(650);
+  await page.keyboard.up('ArrowRight');
+  expect(await page.evaluate(()=>(window as any).__GAME__.scene.getScene('StageScene').arcade.stormX)).toBe(x);
+  await expect.poll(()=>page.evaluate(()=>(window as any).__GAME__.scene.getScene('StageScene').arcade.state.dodges)).toBe(1);
+  const before=await page.evaluate(()=>(window as any).__GAME__.scene.getScene('StageScene').player.health);
+  await page.waitForFunction(()=>(window as any).__GAME__.scene.getScene('StageScene').arcade.stormPhase==='warning');
+  await page.evaluate(()=>{
+    const s=(window as any).__GAME__.scene.getScene('StageScene');
+    s.player.body.reset(s.arcade.stormX,432);
+    s.player.invulnerable=false;
+  });
+  await expect.poll(()=>page.evaluate(()=>(window as any).__GAME__.scene.getScene('StageScene').player.health)).toBe(before-1);
+});
+
+test('cloud race uses held controls, collects rings once, pauses its clock and returns to ground physics', async ({page}) => {
+  await openStage(page,8);
+  await dismiss(page);
+  await page.evaluate(()=>{
+    const s=(window as any).__GAME__.scene.getScene('StageScene');
+    s.storyBeatsSeen=new Set(['trail','encounter']);
+    s.player.invulnerable=true;
+    s.enemies.getChildren().forEach((e:any)=>e.disableBody(true,true));
+  });
+  await page.keyboard.down('ArrowRight');
+  await page.waitForFunction(()=>(window as any).__GAME__.scene.getScene('StageScene').arcade.inFlight);
+  await page.keyboard.up('ArrowRight');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(120);
+  const clock=await page.evaluate(()=>(window as any).__GAME__.scene.getScene('StageScene').arcade.state.raceMs);
+  await page.waitForTimeout(400);
+  expect(await page.evaluate(()=>(window as any).__GAME__.scene.getScene('StageScene').arcade.state.raceMs)).toBe(clock);
+  await page.keyboard.press('Enter');
+  await page.keyboard.down('ArrowRight');
+  for(let i=0;i<180;i++) {
+    const state=await page.evaluate(()=>{
+      const s=(window as any).__GAME__.scene.getScene('StageScene');
+      const ring=s.arcade.rings.find((r:any)=>!r.getData('collected') && r.x>=s.player.x-30);
+      return {done:s.arcade.state.raceDone,y:s.player.y,target:ring ? ring.y+45 : 350};
+    });
+    if(state.done) break;
+    if(state.y>state.target) await page.keyboard.down('ArrowUp');
+    else await page.keyboard.up('ArrowUp');
+    await page.waitForTimeout(55);
+  }
+  await page.keyboard.up('ArrowRight');
+  await page.keyboard.up('ArrowUp');
+  const result=await page.evaluate(()=>{
+    const s=(window as any).__GAME__.scene.getScene('StageScene');
+    return {done:s.arcade.state.raceDone,rings:s.arcade.state.raceRings,unique:new Set(s.arcade.state.raceCollected).size,
+      gravity:s.player.body.allowGravity,platforms:s.playerPlatforms.active,ms:s.arcade.state.raceMs};
+  });
+  expect(result.done).toBe(true);
+  expect(result.rings).toBeGreaterThanOrEqual(4);
+  expect(result.unique).toBe(result.rings);
+  expect(result.gravity).toBe(true);
+  expect(result.platforms).toBe(true);
+  expect(result.ms).toBeLessThan(18000);
 });

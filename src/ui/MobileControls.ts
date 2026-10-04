@@ -43,6 +43,7 @@ export class MobileControls {
     for (const control of this.held.values()) {
       if (control === 'left' || control === 'right') state[control] = true;
     }
+    state.jump ||= [...this.held.values()].includes('jump');
     const now = this.scene.time.now;
     if ([...this.held.values()].includes('attack') && now >= this.nextAttackAt) {
       state.attack = true;

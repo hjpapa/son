@@ -18,6 +18,8 @@ import { MobileControls } from '../ui/MobileControls';
 import { companionTextures } from '../game/data/companions';
 import { addCoverBackground } from '../ui/background';
 import { bakedImage, bakeTexture } from '../ui/bake';
+import { addStageScenery, platformTexture } from '../ui/StageScenery';
+import { ArcadeChallenges, type ArcadeState } from '../game/ArcadeChallenges';
 
 // Progress kept when a chapter restarts after the last talisman is used, so
 // a young player continues near where they fell instead of from the start.
@@ -25,6 +27,7 @@ export type RetryState = {
   checkpointX: number;
   seenBeats: string[];
   collectedCoins: number[];
+  arcade?: ArcadeState;
 };
 
 type StageSceneInit = {
@@ -70,6 +73,10 @@ export class StageScene extends Phaser.Scene {
   private stage!: StageData;
   private retry?: RetryState;
   private player!: Player;
+  private arcade!: ArcadeChallenges;
+  private arcadeToast?: Phaser.GameObjects.Text;
+  private playerPlatforms!: Phaser.Physics.Arcade.Collider;
+  private hazardPulseMs = 0;
   private platforms!: Phaser.Physics.Arcade.StaticGroup;
   private coins!: Phaser.Physics.Arcade.StaticGroup;
   private healthItems!: Phaser.Physics.Arcade.StaticGroup;
@@ -144,6 +151,8 @@ export class StageScene extends Phaser.Scene {
     this.npcMet = false;
     this.rewardCollected = false;
     this.hazardHitReadyAt = 0;
+    this.hazardPulseMs = 0;
+    this.arcadeToast = undefined;
     this.bossBarFrame = undefined;
     this.bossBarFill = undefined;
     this.bossBarName = undefined;
@@ -188,6 +197,12 @@ export class StageScene extends Phaser.Scene {
     this.createGoal();
     this.createInput();
     this.createUi();
+    this.arcade = new ArcadeChallenges(this, this.stage.chapter, this.player, this.platforms, {
+      message: text => this.showArcadeMessage(text),
+      reward: xp => this.gainExperience(xp),
+      damage: () => { if (this.player.takeDamage(1)) this.handlePlayerDamaged(); },
+      flight: on => { this.playerPlatforms.active = !on; }
+    }, this.retry?.arcade);
 
     this.dialogue = new DialogueBox(this);
     this.dialogue.setSkippable(StageManager.getStars(this.stage.id) > 0);
@@ -226,7 +241,11 @@ export class StageScene extends Phaser.Scene {
     const gameplayPaused = this.inputLocked || this.dialogue.isOpen;
     if (gameplayPaused) this.mobileControls.reset();
     else this.applyGimmicks(delta);
-    this.player.update(gameplayPaused ? this.emptyInput() : this.readInput());
+    const input = gameplayPaused ? this.emptyInput() : this.readInput();
+    this.arcade.update(delta, gameplayPaused);
+    if (!gameplayPaused) this.hazardPulseMs += Math.min(delta, 100);
+    this.player.update(input);
+    if (gameplayPaused && this.arcade.inFlight) this.player.setVelocity(0, 0);
     this.updateCompanionFollowers();
 
     if (!gameplayPaused) {
@@ -243,6 +262,7 @@ export class StageScene extends Phaser.Scene {
     this.updateSurviveStage(delta);
     this.updateBossBar();
     this.updateProgressBar();
+    this.arcade.setHudVisible(!gameplayPaused && !this.tip?.active && !this.bossBarFrame?.visible);
   }
 
   // A storybook title page with a soft gong opens every chapter.
@@ -344,7 +364,7 @@ export class StageScene extends Phaser.Scene {
     this.player.setCloudJump(this.stage.chapter >= 2);
     this.createCompanionFollowers();
 
-    this.physics.add.collider(this.player, this.platforms);
+    this.playerPlatforms = this.physics.add.collider(this.player, this.platforms);
     this.physics.add.collider(this.enemies, this.platforms);
     this.physics.add.collider(this.player, this.enemies, (_playerObject, enemyObject) => {
       this.handlePlayerEnemyCollision(enemyObject as Enemy);
@@ -413,7 +433,7 @@ export class StageScene extends Phaser.Scene {
     const warnings: Record<StageHazard['type'], Partial<Record<string, string>>> = {
       spikes: { '사오정': '뾰족한 곳은 뛰어넘어요!', '저팔계': '앗, 뾰족해! 점프하자!', '삼장법사': '오공아, 가시를 조심하거라.' },
       water: { '사오정': '물살은 제가 잘 알아요. 위로 건너요!', '저팔계': '물에 빠지면 안 돼!', '삼장법사': '다리 위로 건너가자꾸나.' },
-      lightning: { '저팔계': '번개다! 위로 뛰어!', '사오정': '번쩍이는 곳은 피해요!', '삼장법사': '번개 구름이구나. 조심하거라.' },
+      lightning: { '저팔계': '번개다! 표시 옆으로 피하자!', '사오정': '번쩍이는 곳은 피해요!', '삼장법사': '번개 구름이구나. 조심하거라.' },
       mud: { '저팔계': '으, 끈적끈적해…', '사오정': '늪은 천천히 건너요.', '삼장법사': '서두르지 말고 한 걸음씩.' },
       wind: { '사오정': '바람이 세요. 버텨요!', '저팔계': '날아가겠어!', '삼장법사': '바람이 쉴 때 나아가자.' }
     };
@@ -469,8 +489,8 @@ export class StageScene extends Phaser.Scene {
 
   private createHazards(): void {
     this.stage.hazards.forEach((hazard) => {
-      const zoneHeight = hazard.type === 'wind' ? 170 : 46;
-      const zoneY = hazard.type === 'wind' ? hazard.y - 66 : hazard.y - 14;
+      const zoneHeight = hazard.type === 'lightning' ? 300 : hazard.type === 'wind' ? 170 : 46;
+      const zoneY = hazard.type === 'lightning' ? 282 : hazard.type === 'wind' ? hazard.y - 66 : hazard.y - 14;
       const zone = this.add.zone(hazard.x, zoneY, hazard.width, zoneHeight);
       this.physics.add.existing(zone, true);
       this.hazardZones.push({ data: hazard, zone });
@@ -492,8 +512,14 @@ export class StageScene extends Phaser.Scene {
         }
       } else if (hazard.type === 'lightning') {
         const marker = this.add.rectangle(hazard.x, hazard.y, hazard.width, 18, 0x754cc8, 0.65).setStrokeStyle(3, 0xf8e85e).setDepth(4);
-        this.tweens.add({ targets: marker, alpha: 0.18, duration: 430, yoyo: true, repeat: -1 });
-        this.add.text(hazard.x, hazard.y - 34, '!', { color: '#fff266', fontSize: '32px', fontStyle: 'bold', stroke: '#45206f', strokeThickness: 4 }).setOrigin(0.5).setDepth(5);
+        const warning = this.add.text(hazard.x, 175, '! 옆으로 피하기', hudText(18)).setOrigin(0.5).setDepth(5);
+        const beam = this.add.rectangle(hazard.x, 285, hazard.width, 300, 0xfff2a0, 0.8).setDepth(5);
+        this.events.on(Phaser.Scenes.Events.UPDATE, () => {
+          const phase = (this.hazardPulseMs + hazard.x) % 3600;
+          marker.setAlpha(phase < 2100 ? 0.15 : phase < 3100 ? 0.65 : 1);
+          warning.setVisible(phase >= 2100 && phase < 3100);
+          beam.setVisible(phase >= 3100 && phase < 3400);
+        });
       } else {
         this.add.rectangle(hazard.x, hazard.y - 56, hazard.width, 128, 0xffffff, 0.08).setStrokeStyle(2, 0xfff4be, 0.32).setDepth(3);
         for (let x = startX + 45; x < startX + hazard.width; x += 90) {
@@ -516,12 +542,16 @@ export class StageScene extends Phaser.Scene {
       return;
     }
 
+    if (hazard.type === 'lightning') {
+      const phase = (this.hazardPulseMs + hazard.x) % 3600;
+      if (phase < 3100 || phase >= 3400) return;
+    }
     this.hazardHitReadyAt = this.time.now + 1600;
     if (this.player.takeDamage(1)) {
       const body = this.player.body as Phaser.Physics.Arcade.Body;
       body.setVelocityY(-310);
       body.setVelocityX(this.player.x < hazard.x ? -190 : 190);
-      this.showFloatingMessage(`앗, ${hazard.label}! 점프로 넘어가요`, 1200);
+      this.showFloatingMessage(hazard.type === 'lightning' ? '번개! 표시가 보이면 옆으로 피하세요' : `앗, ${hazard.label}! 점프로 넘어가요`, 1200);
       this.handlePlayerDamaged();
     }
   }
@@ -568,6 +598,7 @@ export class StageScene extends Phaser.Scene {
     const textureKey = `background-${this.stage.backgroundKey}`;
     this.textures.get(textureKey).setFilter(Phaser.Textures.FilterMode.LINEAR);
     addCoverBackground(this, textureKey).setScrollFactor(0).setDepth(-20);
+    addStageScenery(this, this.stage.backgroundKey, worldWidth, palette);
 
     this.add.rectangle(0, 432, worldWidth, 108, palette.ground, 0.5).setOrigin(0);
     this.add.rectangle(0, 486, worldWidth, 54, palette.soil, 0.72).setOrigin(0);
@@ -583,7 +614,8 @@ export class StageScene extends Phaser.Scene {
 
   private addPlatform(x: number, y: number, width: number, height: number): void {
     const palette = palettes[this.stage.backgroundKey];
-    const rect = this.add.rectangle(x, y, width, height, palette.soil, 0.9).setStrokeStyle(4, palette.near, 0.96);
+    this.add.tileSprite(x, y, width, height, platformTexture(this, this.stage.backgroundKey, palette)).setDepth(0);
+    const rect = this.add.rectangle(x, y, width, height).setVisible(false);
     this.add.rectangle(x, y - height / 2 + 3, width - 4, 6, palette.ground, 0.95).setDepth(1);
     this.physics.add.existing(rect, true);
     this.platforms.add(rect);
@@ -856,9 +888,10 @@ export class StageScene extends Phaser.Scene {
       return;
     }
 
-    const show = Boolean(this.boss?.active) && Math.abs(this.boss!.x - this.player.x) < BOSS_BAR_RANGE;
+    const nearby = Boolean(this.boss?.active) && Math.abs(this.boss!.x - this.player.x) < BOSS_BAR_RANGE;
+    const show = nearby && this.stage.clearMode !== 'survive';
     this.bossBarName?.setVisible(show);
-    Music.setBattle(show && !this.stageCleared);
+    Music.setBattle(nearby && !this.stageCleared);
     if (show && !this.bossSpotted) {
       this.bossSpotted = true;
       this.companionSay({ '저팔계': '저기 보스야! 조심해, 형님!', '사오정': '공격이 끝나면 다가가요!', '삼장법사': '침착하게 살피거라.' });
@@ -1020,6 +1053,13 @@ export class StageScene extends Phaser.Scene {
   }
 
   private handleExitReached(): void {
+    if (!this.arcade.exitReady) {
+      if (this.time.now > this.exitLockedMessageAt) {
+        this.exitLockedMessageAt = this.time.now + 1800;
+        this.showFloatingMessage('미로 인장 3개를 찾아요! ← 위쪽 길도 살펴보세요', 1600);
+      }
+      return;
+    }
     if (this.stage.id === 'stage-01' && this.coinCount < REQUIRED_COINS) {
       if (this.time.now > this.exitLockedMessageAt) {
         this.exitLockedMessageAt = this.time.now + 1600;
@@ -1059,6 +1099,16 @@ export class StageScene extends Phaser.Scene {
     this.dialogue.show(chapterStories[this.stage.id].resolution, () => {
       this.inputLocked = false;
     });
+  }
+
+  private showArcadeMessage(message: string): void {
+    this.arcadeToast?.destroy();
+    const toast = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT - 178, message, {
+      ...hudText(18), backgroundColor: '#211b30dd', padding: { x: 12, y: 8 },
+      align: 'center', wordWrap: { width: 600 }
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(1101);
+    this.arcadeToast = toast;
+    this.tweens.add({ targets: toast, alpha: 0, delay: 1250, duration: 350, onComplete: () => toast.destroy() });
   }
 
   private showFloatingMessage(message: string, duration = 1000, color = '#fff1a3'): void {
@@ -1112,7 +1162,7 @@ export class StageScene extends Phaser.Scene {
     // ★ for clearing, ★★ for half the corn coins, ★★★ for all of them.
     const stars = 1 + (this.coinCount >= Math.ceil(this.totalCoins / 2) ? 1 : 0) + (this.coinCount >= this.totalCoins ? 1 : 0);
     const best = StageManager.recordStars(this.stage.id, stars);
-    const result = { stageId: this.stage.id, coins: this.coinCount, totalCoins: this.totalCoins, stars, best };
+    const result = { stageId: this.stage.id, coins: this.coinCount, totalCoins: this.totalCoins, stars, best, arcade: this.arcade.result };
     this.dialogue.show(this.stage.clearDialogue, () => {
       this.scene.start(StageManager.isLastStage(this.stage.id) ? 'EndingScene' : 'StageClearScene', result);
     });
@@ -1198,7 +1248,8 @@ export class StageScene extends Phaser.Scene {
     const retry: RetryState = {
       checkpointX: this.checkpointX,
       seenBeats: [...this.storyBeatsSeen],
-      collectedCoins: [...this.collectedCoins]
+      collectedCoins: [...this.collectedCoins],
+      arcade: this.arcade.state
     };
     this.time.delayedCall(1500, () => this.scene.restart({ stageId: this.stage.id, retry }));
   }
@@ -1252,7 +1303,8 @@ export class StageScene extends Phaser.Scene {
     }
 
     if (this.surviveRemainingMs <= 0) {
-      this.completeStage();
+      this.exitHint?.setText('구름문이 열렸어요! →');
+      if (this.player.x >= this.stage.goalX - 70) this.completeStage();
     }
   }
 
@@ -1262,7 +1314,7 @@ export class StageScene extends Phaser.Scene {
     }
 
     const seconds = Math.ceil(this.surviveRemainingMs / 1000);
-    this.surviveTimerText.setText(`추격전: ${seconds}초 버티기`);
+    this.surviveTimerText.setText(seconds > 0 ? `추격전: ${seconds}초 버티기` : '성공! 구름문으로 탈출 →');
     if (seconds <= 10) {
       this.surviveTimerText.setBackgroundColor('rgba(143, 35, 35, 0.86)');
     }

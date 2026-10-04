@@ -11,3 +11,6 @@ playwright-report/
 
 .vercel
 .env*
+
+.playwright-cli/
+output/playwright/
