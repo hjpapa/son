@@ -1220,7 +1220,7 @@ export class StageScene extends Phaser.Scene {
     } else if (this.stage.chapter >= 6 && this.stage.chapter <= 8) {
       const name = this.companions[this.companions.length - 1];
       const keys = this.companions.map((friend) => companionSkills[friend].number).join('·');
-      if (name) this.showTip('friend', `${name}: ${companionSkills[name].description}\n${touch ? '왼쪽 위 동료 얼굴을 눌러 호출해요' : `왼쪽 위 동료 얼굴 또는 숫자 ${keys} 키로 호출해요`}`, 6500);
+      if (name) this.showTip('friend', `${name}: ${companionSkills[name].description}\n${touch ? '아래 가운데 동료 얼굴을 눌러 호출해요' : `왼쪽 위 동료 얼굴 또는 숫자 ${keys} 키로 호출해요`}`, 6500);
     }
   }
 

@@ -3,6 +3,9 @@ import { Sfx } from '../audio/Sfx';
 import { Enemy } from '../entities/Enemy';
 import { Player } from '../entities/Player';
 import { companionSkills, companionTextures } from './data/companions';
+import { GAME_HEIGHT, GAME_WIDTH } from '../constants';
+
+const CARD_SPACING = 92;
 
 export type CompanionSkillState = { cooldowns: Record<string, number>; shieldMs: number; tideMs: number };
 type Cast = { name: string; x: number; y: number; direction: number; ms: number; hit: Set<Enemy>; sprite: Phaser.GameObjects.GameObject };
@@ -20,17 +23,24 @@ export class CompanionSkills {
     this.state = { cooldowns: { ...saved?.cooldowns }, shieldMs: saved?.shieldMs ?? 0, tideMs: saved?.tideMs ?? 0 };
     this.player.setCompanionShield(this.state.shieldMs > 0);
     this.aura = scene.add.graphics().setDepth(5.5);
+    // On touch screens the cards sit at the bottom centre, between the move
+    // and jump buttons, where either thumb reaches them; below the hazard
+    // name labels on the ground. With a keyboard the number keys call them,
+    // so they stay out of the way at the top left.
+    const touch = scene.sys.game.device.input.touch;
+    const firstX = touch ? GAME_WIDTH / 2 - ((names.length - 1) * CARD_SPACING) / 2 : 52;
+    const y = touch ? GAME_HEIGHT - 40 : 134;
     names.forEach((name, index) => {
       const skill = companionSkills[name];
       // Sized for a thumb on a phone, where the game is drawn at about 0.7x.
-      const x = 52 + index * 92;
-      const panel = scene.add.rectangle(x, 134, 84, 66, 0x2a1a08, 0.87).setStrokeStyle(3, skill.color)
+      const x = firstX + index * CARD_SPACING;
+      const panel = scene.add.rectangle(x, y, 84, 66, 0x2a1a08, 0.87).setStrokeStyle(3, skill.color)
         .setScrollFactor(0).setDepth(903).setInteractive({ useHandCursor: true });
-      const face = scene.add.image(x - 14, 119, companionTextures[name]).setScrollFactor(0).setDepth(904);
+      const face = scene.add.image(x - 14, y - 15, companionTextures[name]).setScrollFactor(0).setDepth(904);
       face.setScale(38 / face.height);
-      scene.add.text(x + 21, 119, String(skill.number), { fontSize: '19px', color: '#fff5cd', fontStyle: 'bold' })
+      scene.add.text(x + 21, y - 15, String(skill.number), { fontSize: '19px', color: '#fff5cd', fontStyle: 'bold' })
         .setOrigin(0.5).setScrollFactor(0).setDepth(904);
-      const status = scene.add.text(x, 152, '', { fontSize: '15px', color: '#fff5cd', fontStyle: 'bold' })
+      const status = scene.add.text(x, y + 18, '', { fontSize: '15px', color: '#fff5cd', fontStyle: 'bold' })
         .setOrigin(0.5).setScrollFactor(0).setDepth(904);
       panel.on('pointerdown', () => this.activate(name));
       this.cards.push({ name, panel, status, key: scene.input.keyboard!.addKey(skill.key) });

@@ -757,6 +757,33 @@ test.describe('long phone', () => {
     expect(size.width).toBeGreaterThan(1100);
     expect(size.canvas).toBeGreaterThan(830);
   });
+
+  test('companion cards sit between the move and jump buttons, and a tap calls a friend', async ({ page }) => {
+    await openPartyStage(page);
+    const layout = await page.evaluate(() => {
+      const s = (window as any).__GAME__.scene.getScene('StageScene');
+      const buttons = s.mobileControls.buttons;
+      const edge = (control: string, side: number) => {
+        const b = buttons.find((item: any) => item.control === control);
+        return b.x + side * b.radius;
+      };
+      const cards = s.companionAbilities.cards.map((card: any) => card.panel.getBounds());
+      const card = cards[1];
+      const canvas = (window as any).__GAME__.canvas.getBoundingClientRect();
+      const scale = canvas.width / s.scale.width;
+      return {
+        clearOfMove: cards[0].left > edge('right', 1),
+        clearOfJump: cards[cards.length - 1].right < edge('jump', -1),
+        bottom: cards.every((c: any) => c.top > 432 && c.bottom <= s.scale.height),
+        tap: { x: canvas.x + card.centerX * scale, y: canvas.y + card.centerY * scale }
+      };
+    });
+    expect(layout).toMatchObject({ clearOfMove: true, clearOfJump: true, bottom: true });
+    await page.touchscreen.tap(layout.tap.x, layout.tap.y);
+    await expect.poll(() => page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').companionAbilities.state.cooldowns['저팔계'] ?? 0)).toBeGreaterThan(0);
+    // The tap on a card is not also a press of a move button.
+    expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').mobileControls.held.size)).toBe(0);
+  });
 });
 
 // Real physics and input only: hold right, jump when blocked or an enemy is
