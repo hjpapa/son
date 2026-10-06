@@ -178,8 +178,9 @@ export class ArcadeChallenges {
   }
 
   private createRace(): void {
-    // Between the hero's start and the first ring, so no ring hides the guide.
-    this.scene.add.text(330, 160, '근두운 레이싱 →\n↑ / 점프: 올라가기 · 떼면 내려가기\n→ 가속 · ← 천천히 · 황금 링 모으기\n공격으로 요괴도 물리쳐요', { ...textStyle, lineSpacing: 4 }).setDepth(3);
+    // Between the hero's start and the first ring, below the chapter tip
+    // panel, so neither a ring nor the tip hides the guide.
+    this.scene.add.text(330, 248,'근두운 레이싱 →\n↑ / 점프: 올라가기 · 떼면 내려가기\n→ 가속 · ← 천천히 · 황금 링 모으기\n공격으로 요괴도 물리쳐요', { ...textStyle, lineSpacing: 4 }).setDepth(3);
     this.scene.add.image(600, 399, 'nimbus-cloud').setDepth(3);
     for (let i = 0; i < 6; i++) {
       const ring = this.scene.add.ellipse(820 + i * 215, i % 2 === 0 ? 228 : 321, 52, 80, 0xffd65a, 0.08)

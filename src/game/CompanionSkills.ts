@@ -28,7 +28,7 @@ export class CompanionSkills {
         .setScrollFactor(0).setDepth(903).setInteractive({ useHandCursor: true });
       const face = scene.add.image(x - 14, 119, companionTextures[name]).setScrollFactor(0).setDepth(904);
       face.setScale(38 / face.height);
-      scene.add.text(x + 21, 119, String(index + 1), { fontSize: '19px', color: '#fff5cd', fontStyle: 'bold' })
+      scene.add.text(x + 21, 119, String(skill.number), { fontSize: '19px', color: '#fff5cd', fontStyle: 'bold' })
         .setOrigin(0.5).setScrollFactor(0).setDepth(904);
       const status = scene.add.text(x, 152, '', { fontSize: '15px', color: '#fff5cd', fontStyle: 'bold' })
         .setOrigin(0.5).setScrollFactor(0).setDepth(904);

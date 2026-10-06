@@ -138,7 +138,10 @@ export class StageScene extends Phaser.Scene {
 
   init(data: StageSceneInit): void {
     this.stage = getStage(data.stageId ?? StageManager.getFirstStageId());
-    this.companions = StageManager.getCompanionsForChapter(this.stage.chapter);
+    // Chapter 8 opens with 삼장법사 carried off by the yellow wind, so he
+    // cannot walk along or lend a skill until the rescue.
+    this.companions = StageManager.getCompanionsForChapter(this.stage.chapter)
+      .filter((name) => !this.stage.absentCompanions?.includes(name));
     this.speech = undefined;
     this.companionHelpUsed = false;
     this.bossSpotted = false;
@@ -1216,7 +1219,8 @@ export class StageScene extends Phaser.Scene {
       this.showTip('cloud', touch ? '근두운을 배웠어요! 공중에서 점프를 한 번 더 누르면 구름을 타요' : '근두운을 배웠어요! 공중에서 ↑ 키를 한 번 더 누르면 구름을 타요', 6500);
     } else if (this.stage.chapter >= 6 && this.stage.chapter <= 8) {
       const name = this.companions[this.companions.length - 1];
-      if (name) this.showTip('friend', `${name}: ${companionSkills[name].description}\n${touch ? '왼쪽 위 동료 얼굴을 눌러 호출해요' : '왼쪽 위 동료 얼굴 또는 숫자 1·2·3 키로 호출해요'}`, 6500);
+      const keys = this.companions.map((friend) => companionSkills[friend].number).join('·');
+      if (name) this.showTip('friend', `${name}: ${companionSkills[name].description}\n${touch ? '왼쪽 위 동료 얼굴을 눌러 호출해요' : `왼쪽 위 동료 얼굴 또는 숫자 ${keys} 키로 호출해요`}`, 6500);
     }
   }
 

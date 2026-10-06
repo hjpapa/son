@@ -72,6 +72,8 @@ export type StageData = {
   startDialogue: string[];
   clearDialogue: string[];
   companionUnlock?: '삼장법사' | '저팔계' | '사오정';
+  // Friends the story takes away for this chapter (e.g. carried off by the wind).
+  absentCompanions?: string[];
   nextStageId?: string;
 };
 
@@ -206,7 +208,7 @@ const stageLayouts: Array<Omit<StageData, 'startDialogue' | 'clearDialogue'>> = 
     boss: { type: 'boss', name: '황풍대왕', x: 2550, y: groundY - 76, hp: 7, maxHp: 7, damage: 1, speed: 62, patrolRange: 190, spriteKey: 'boss-yellowwind', attackStyle: 'wind' },
     hazards: [{ type: 'wind', x: 1120, y: 405, width: 520, label: '황풍 지대', value: 100 }], platforms: [{ x: 950, y: 350, width: 160 }, { x: 1250, y: 345, width: 170 }, { x: 1600, y: 315, width: 180 }, { x: 1900, y: 350, width: 170 }, { x: 2250, y: 318, width: 170 }, { x: 2650, y: 318, width: 160 }],
     gimmicks: [{ type: 'windPush', label: '거센 황풍', value: 95 }],
-    nextStageId: 'stage-09'
+    absentCompanions: ['삼장법사'], nextStageId: 'stage-09'
   },
   {
     id: 'stage-09', chapter: 9, title: '호선봉의 어둠숲', subtitle: '빠른 발톱과 가짜 그림자',

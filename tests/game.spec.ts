@@ -900,11 +900,15 @@ test('companions warn about hazards and, once per chapter, heal the hero when he
   });
   await page.waitForFunction(() => (window as any).__GAME__.scene.getScene('StageScene').dialogue?.isOpen);
   await dismiss(page);
-  expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').companions)).toEqual(['삼장법사', '저팔계', '사오정']);
+  // 삼장법사 was carried off by the wind in this chapter's story.
+  expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').companions)).toEqual(['저팔계', '사오정']);
 
   await page.evaluate(() => {
     const s = (window as any).__GAME__.scene.getScene('StageScene');
     s.storyBeatsSeen = new Set(['trail', 'encounter']);
+    // The wind sits inside the cloud race lane; walk there instead of
+    // racing, so ring rewards and storm clouds cannot change the hearts.
+    s.arcade.state.raceDone = true;
     s.player.body.reset(s.stage.hazards[0].x - 250, 432);
   });
   await expect.poll(() => page.evaluate(() => Boolean((window as any).__GAME__.scene.getScene('StageScene').speech))).toBe(true);
