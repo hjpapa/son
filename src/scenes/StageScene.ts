@@ -211,6 +211,7 @@ export class StageScene extends Phaser.Scene {
       damage: () => { if (this.player.takeDamage(1)) this.handlePlayerDamaged(); },
       flight: on => { this.playerPlatforms.active = !on; }
     }, this.retry?.arcade);
+    this.updateSurviveTimerText();
 
     this.companionAbilities = new CompanionSkills(this, this.player, this.companions, this.companionSprites, this.enemies, {
       allowed: () => !this.inputLocked && !this.dialogue?.isOpen && !this.stageCleared && this.player.active && !this.physics.world.isPaused && this.scene.isActive(),
@@ -847,7 +848,7 @@ export class StageScene extends Phaser.Scene {
     const seconds = this.stage.gimmicks.find((gimmick) => gimmick.type === 'surviveRun')?.value ?? 35;
     this.surviveRemainingMs = seconds * 1000;
     this.surviveTimerText = this.add
-      .text(GAME_WIDTH / 2, 156, '', {
+      .text(GAME_WIDTH / 2, 108, '', {
         color: '#ffffff',
         fontSize: '24px',
         fontStyle: 'bold',
@@ -857,7 +858,7 @@ export class StageScene extends Phaser.Scene {
       .setOrigin(0.5, 0)
       .setScrollFactor(0)
       .setDepth(902);
-    this.updateSurviveTimerText();
+    // Filled in once the storm challenge exists (it adds the dodge count).
   }
 
   private updateUi(): void {
@@ -1339,9 +1340,14 @@ export class StageScene extends Phaser.Scene {
     }
 
     const seconds = Math.ceil(this.surviveRemainingMs / 1000);
-    this.surviveTimerText.setText(seconds > 0 ? `추격전: ${seconds}초 버티기` : '성공! 구름문으로 탈출 →');
-    if (seconds <= 10) {
-      this.surviveTimerText.setBackgroundColor('rgba(143, 35, 35, 0.86)');
-    }
+    const dodges = this.arcade.stormDodges;
+    const dodgeText = dodges === undefined ? '' : `번개 회피 ${dodges}회`;
+    this.surviveTimerText.setText(seconds > 0
+      ? `추격전 ${seconds}초 버티기${dodgeText && ` · ${dodgeText}`}`
+      : `성공! ${dodgeText && `${dodgeText} · `}구름문으로 탈출 →`);
+    // Green once escaped, red for the last ten seconds; set only on change,
+    // since every style change redraws the text.
+    const color = seconds <= 0 ? 'rgba(40, 112, 58, 0.88)' : seconds <= 10 ? 'rgba(143, 35, 35, 0.86)' : 'rgba(30, 72, 130, 0.82)';
+    if (this.surviveTimerText.style.backgroundColor !== color) this.surviveTimerText.setBackgroundColor(color);
   }
 }

@@ -46,7 +46,8 @@ export class ArcadeChallenges {
     if (this.isMaze) this.createMaze();
     if (chapter === 8) this.createRace();
     if (chapter === 4) this.createStorm();
-    if (this.isMaze || chapter === 4 || chapter === 8) {
+    // The storm count lives in the chase timer banner, so chapter 4 has one HUD line.
+    if (this.isMaze || chapter === 8) {
       this.hud = scene.add.text(GAME_WIDTH / 2, 118, '', { ...textStyle, backgroundColor: '#241e39dd', padding: { x: 12, y: 6 } })
         .setOrigin(0.5).setScrollFactor(0).setDepth(1100);
     }
@@ -57,6 +58,7 @@ export class ArcadeChallenges {
   get isMaze(): boolean { return isMazeChapter(this.chapter); }
   get exitReady(): boolean { return !this.isMaze || this.state.seals.length === 3; }
   get inFlight(): boolean { return this.raceActive; }
+  get stormDodges(): number | undefined { return this.chapter === 4 ? this.state.dodges : undefined; }
   get result(): string | undefined {
     if (this.isMaze) return `미로 인장 ${this.state.seals.length}/3`;
     if (this.chapter === 4) return `번개 회피 ${this.state.dodges}회`;
@@ -224,7 +226,6 @@ export class ArcadeChallenges {
 
   private refreshHud(): void {
     if (this.isMaze) this.hud?.setText(this.exitReady ? '미로 해결! 열린 문으로 가요 →' : `갈림길 미로 · 인장 ${this.state.seals.length}/3 · 위쪽 길 ↑`);
-    if (this.chapter === 4) this.hud?.setText(`번개 회피 ${this.state.dodges}회 · ! 표시 뒤 옆으로 이동`);
     if (this.chapter === 8) this.hud?.setText(this.state.raceDone ? this.result! : `근두운 · ${(this.state.raceMs / 1000).toFixed(1)}초 / 목표 18초 · 링 ${this.state.raceRings}/6`);
   }
 }
