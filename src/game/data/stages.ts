@@ -133,7 +133,7 @@ const stageLayouts: Array<Omit<StageData, 'startDialogue' | 'clearDialogue'>> = 
     boss: { type: 'boss', name: '용궁 수문장', x: 2300, y: groundY - 74, hp: 5, maxHp: 5, damage: 1, speed: 44, patrolRange: 100, spriteKey: 'boss-gatekeeper', attackStyle: 'bubble' },
     reward: { type: 'staff', label: '황금 여의봉', x: 2640, y: 324 },
     cameos: [{ name: '동해 용왕', spriteKey: 'npc-dragon', x: 380, y: groundY - 6 }],
-    hazards: [{ type: 'water', x: 980, y: 426, width: 130, label: '깊은 물' }], platforms: [{ x: 640, y: 350, width: 180 }, { x: 980, y: 342, width: 150 }, { x: 1250, y: 345, width: 200 }, { x: 1560, y: 305, width: 160 }, { x: 1760, y: 345, width: 160 }, { x: 2120, y: 318, width: 150 }], gimmicks: [{ type: 'staffUpgrade', label: '여의봉 강화', value: 1.25 }],
+    hazards: [{ type: 'water', x: 980, y: 426, width: 130, label: '깊은 물' }], platforms: [{ x: 640, y: 350, width: 180 }, { x: 980, y: 342, width: 150 }, { x: 1250, y: 345, width: 200 }, { x: 1530, y: 305, width: 160 }, { x: 1760, y: 345, width: 160 }, { x: 2120, y: 318, width: 150 }], gimmicks: [{ type: 'staffUpgrade', label: '여의봉 강화', value: 1.25 }],
     nextStageId: 'stage-04'
   },
   {
