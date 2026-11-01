@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { stages } from '../game/data/stages';
+import characterArt from '../game/data/character-art.json';
 
 // Phone and tablet glue: offline caching, full screen, and pausing while
 // the device is held upright (the game is designed for landscape).
@@ -27,16 +28,21 @@ export function registerServiceWorker(): void {
 // also opens offline. Skipped when the device asks to save data.
 function warmChapterBackgrounds(): void {
   const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
-  if (connection?.saveData) return;
-  const backgrounds = [...new Set(stages.map((stage) => `${location.origin}${import.meta.env.BASE_URL}assets/backgrounds/${stage.backgroundKey}.webp`))];
+  const base = `${location.origin}${import.meta.env.BASE_URL}`;
+  const backgrounds = connection?.saveData ? [] : stages.map((stage) => `${base}assets/backgrounds/${stage.backgroundKey}.webp`);
+  const coreArt = [
+    `${base}assets/backgrounds/cornfield.webp`,
+    ...['clean', 'golden'].flatMap(style => ['idle', 'run', 'attack', 'crouch'].map(pose => `${base}assets/sprites/corn-wukong-${style}-${pose}.webp`)),
+    ...[...characterArt.travelers, ...characterArt.legends].map(key => `${base}assets/characters/${key}.webp`)
+  ];
   // Files fetched before the worker took control (scripts, characters) are
   // requested again so they are kept too; most come from the HTTP cache.
-  const alreadyLoaded = performance
-    .getEntriesByType('resource')
-    .map((entry) => entry.name)
-    .filter((url) => url.startsWith(location.origin));
   window.setTimeout(() => {
-    new Set([...alreadyLoaded, ...backgrounds]).forEach((url) => {
+    const alreadyLoaded = performance.getEntriesByType('resource')
+      .map(entry => entry.name).filter(url => new URL(url).origin === location.origin);
+    // Data saving skips future backgrounds, never the files already needed
+    // to reopen the game. Explicit art URLs also cover a slow first preload.
+    new Set([...alreadyLoaded, ...coreArt, ...backgrounds]).forEach((url) => {
       void fetch(url).catch(() => undefined);
     });
   }, 4000);

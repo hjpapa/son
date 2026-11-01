@@ -7,7 +7,7 @@ import { createButton } from '../ui/Button';
 import { companionTextures } from '../game/data/companions';
 import { addCoverBackground } from '../ui/background';
 
-const closingWords = '네 친구는 천축국의 불경을 고향에 전했어요. 옥수수손오공은 힘보다 책임, 혼자보다 우정이 더 크다는 것을 배웠어요.';
+const closingWords = '네 친구는 천축국에서 받은 불경을 당나라에 전했어요. 옥수수손오공은 힘보다 책임, 혼자보다 우정이 더 크다는 것을 배웠어요.';
 
 export class EndingScene extends Phaser.Scene {
   constructor() {

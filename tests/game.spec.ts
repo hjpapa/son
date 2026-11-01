@@ -119,6 +119,14 @@ test('companion skills: Sandy water wave, touch activation, terrain protection a
   });
   await page.mouse.click(point.x, point.y);
   await expect.poll(() => page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').companionAbilities.waterGuard)).toBe(true);
+  const bubble = await page.evaluate(() => {
+    const s = (window as any).__GAME__.scene.getScene('StageScene');
+    const bounds = s.speech.container.getBounds();
+    return { left: bounds.left - s.cameras.main.scrollX, right: bounds.right - s.cameras.main.scrollX,
+      width: s.scale.width };
+  });
+  expect(bubble.left).toBeGreaterThanOrEqual(0);
+  expect(bubble.right).toBeLessThanOrEqual(bubble.width);
   await page.screenshot({ path: 'output/playwright/companion-skills.png' });
   await page.waitForTimeout(850);
   expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').target.hp)).toBe(9);
@@ -288,10 +296,9 @@ test('a held attack deals one hit per target; a new swing deals another', async 
   await page.waitForTimeout(550);
   await page.keyboard.up('Space');
   expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').testTarget.hp)).toBe(9);
-  await page.waitForTimeout(50);
+  await page.waitForFunction(() => !(window as any).__GAME__.scene.getScene('StageScene').player.attacking);
   await page.keyboard.press('Space');
-  await page.waitForTimeout(400);
-  expect(await page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').testTarget.hp)).toBe(8);
+  await expect.poll(() => page.evaluate(() => (window as any).__GAME__.scene.getScene('StageScene').testTarget.hp)).toBe(8);
 });
 
 test('a jump pressed just before landing still happens (jump buffer)', async ({ page }) => {
@@ -365,10 +372,21 @@ test('all 12 chapters: art, story beats, real boss attacks, rewards and ending',
   page.on('response', (response) => { if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`); });
   await openStage(page);
   for (let chapter = 1; chapter <= 12; chapter++) {
-    await page.waitForFunction((id) => {
-      const s = (window as any).__GAME__.scene.getScene('StageScene');
-      return s.scene.isActive() && s.stage.id === id && s.dialogue?.isOpen;
-    }, `stage-${String(chapter).padStart(2, '0')}`, { timeout: 15000 });
+    try {
+      await page.waitForFunction((id) => {
+        const s = (window as any).__GAME__.scene.getScene('StageScene');
+        return s.scene.isActive() && s.stage.id === id && s.dialogue?.isOpen;
+      }, `stage-${String(chapter).padStart(2, '0')}`, { timeout: 15000 });
+    } catch (error) {
+      console.error('Chapter transition state:', await page.evaluate(() => {
+        const g = (window as any).__GAME__;
+        const s = g.scene.getScene('StageScene');
+        return { stage: s.stage.id, active: s.scene.isActive(), paused: g.isPaused,
+          loopRunning: g.loop.running, frame: g.loop.frame, fps: g.loop.actualFps,
+          clock: s.time.now, clockPaused: s.time.paused, timers: s.time._active.map((t: any) => ({ delay: t.delay, elapsed: t.elapsed, paused: t.paused })) };
+      }), errors);
+      throw error;
+    }
     expect(await page.evaluate(() => {
       const s = (window as any).__GAME__.scene.getScene('StageScene');
       return s.enemies.getChildren().every((enemy: any) => enemy.texture.getSourceImage().width === 192);

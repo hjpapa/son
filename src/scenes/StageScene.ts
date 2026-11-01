@@ -423,7 +423,7 @@ export class StageScene extends Phaser.Scene {
         this.speech.container.destroy();
         this.speech = undefined;
       } else {
-        this.speech.container.setPosition(speaker.x, speaker.y - 86);
+        this.positionCompanionSpeech(speaker);
       }
     }
     this.mentionHazardsAhead();
@@ -440,9 +440,23 @@ export class StageScene extends Phaser.Scene {
       color: '#2a1a08', fontSize: '17px', fontStyle: 'bold', backgroundColor: '#fffaf0', padding: { x: 10, y: 6 }, align: 'center', wordWrap: { width: 220 }
     }).setOrigin(0.5, 1);
     const tail = this.add.triangle(0, 7, 0, 0, 14, 0, 7, 9, 0xfffaf0).setOrigin(0.5, 1);
-    const container = this.add.container(speaker.x, speaker.y - 86, [tail, text]).setDepth(60);
+    const container = this.add.container(speaker.x, speaker.y - 86, [tail, text])
+      .setSize(text.width, text.height).setDepth(60);
     this.speech = { container, index, until: this.time.now + duration };
+    this.positionCompanionSpeech(speaker);
     return true;
+  }
+
+  private positionCompanionSpeech(speaker: Phaser.GameObjects.Sprite): void {
+    if (!this.speech) return;
+    const { container } = this.speech;
+    const camera = this.cameras.main;
+    const halfWidth = container.width / 2;
+    const x = Phaser.Math.Clamp(speaker.x, camera.scrollX + halfWidth + 12, camera.scrollX + GAME_WIDTH - halfWidth - 12);
+    const y = Math.max(camera.scrollY + container.height + 12, speaker.y - 86);
+    container.setPosition(x, y);
+    // Keep the tip pointing toward the friend when the bubble hugs an edge.
+    (container.list[0] as Phaser.GameObjects.Triangle).setX(Phaser.Math.Clamp(speaker.x - x, -halfWidth + 12, halfWidth - 12));
   }
 
   private mentionHazardsAhead(): void {

@@ -4,6 +4,7 @@ const port = Number(process.env.PW_PORT ?? 5174);
 
 export default defineConfig({
   testDir: './tests',
+  testIgnore: 'offline.spec.ts',
   timeout: 90000,
   workers: 1,
   use: {

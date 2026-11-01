@@ -148,7 +148,13 @@ export const Music = {
   // Applies the on/off setting right away.
   refresh(): void {
     if (!Settings.music) this.stop();
-    else if (wantedKey) this.play(wantedKey);
+    else if (wantedKey) {
+      const wasDucked = ducked;
+      const wasBattle = battle;
+      this.play(wantedKey);
+      battle = wasBattle;
+      this.duck(wasDucked);
+    }
   },
 
   // For tests: what is playing and how many notes have been scheduled.

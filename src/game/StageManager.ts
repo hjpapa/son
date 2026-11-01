@@ -19,7 +19,7 @@ export type LevelProgress = {
 };
 
 export class StageManager {
-  private static previewProgress = new Map<string, string>();
+  private static previewProgress = new Map<string, string | null>();
 
   private static read(key: string): string | null {
     return this.isPreviewMode() && this.previewProgress.has(key)
@@ -65,9 +65,11 @@ export class StageManager {
   }
 
   static resetProgress(): void {
-    this.previewProgress.clear();
     for (const key of [storageKey, staffUpgradeKey, companionsKey, levelKey, experienceKey, starsKey]) {
-      safeStorage.remove(key);
+      // A preview may read the real save as its starting point, but resets
+      // must stay in that preview too. Preserve the monster book in both modes.
+      if (this.isPreviewMode()) this.previewProgress.set(key, null);
+      else safeStorage.remove(key);
     }
   }
 

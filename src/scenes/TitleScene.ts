@@ -99,7 +99,8 @@ export class TitleScene extends Phaser.Scene {
     });
 
     // Enter continues a saved journey instead of silently erasing it.
-    this.input.keyboard?.once('keydown-ENTER', () => {
+    this.input.keyboard?.on('keydown-ENTER', (event: KeyboardEvent) => {
+      if (event.repeat || this.confirmLayer) return;
       if (StageManager.hasProgress()) this.continueJourney();
       else this.startNewJourney();
     });
