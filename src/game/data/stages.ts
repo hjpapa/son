@@ -145,7 +145,7 @@ const stageLayouts: Array<Omit<StageData, 'startDialogue' | 'clearDialogue'>> = 
     enemies: [
       { type: 'walker', name: '구름 병사', x: 820, y: groundY - 38, hp: 2, damage: 1, speed: 72, patrolRange: 190, spriteKey: 'enemy-cloud' },
       { type: 'flyer', name: '번개 새', x: 1480, y: 230, hp: 2, damage: 1, speed: 92, patrolRange: 220, spriteKey: 'enemy-thunderbird' },
-      { type: 'charger', name: '천궁 창병', x: 2150, y: groundY - 42, hp: 3, damage: 1, speed: 88, patrolRange: 180, spriteKey: 'enemy-heaven-spear' }
+      { type: 'charger', name: '천궁 창병', x: 1830, y: groundY - 6, hp: 3, damage: 1, speed: 88, patrolRange: 140, spriteKey: 'enemy-heaven-spear' }
     ],
     boss: { type: 'boss', name: '이랑진군', x: 700, y: groundY - 74, hp: 8, maxHp: 8, damage: 1, speed: 78, patrolRange: 520, spriteKey: 'boss-erlang', attackStyle: 'lightning', pursuit: true },
     hazards: [{ type: 'lightning', x: 1180, y: 418, width: 130, label: '번개 구름' }, { type: 'lightning', x: 2360, y: 418, width: 150, label: '번개 구름' }],
@@ -175,7 +175,7 @@ const stageLayouts: Array<Omit<StageData, 'startDialogue' | 'clearDialogue'>> = 
     enemies: [
       { type: 'walker', name: '돼지 졸개', x: 780, y: groundY - 40, hp: 2, damage: 1, speed: 58, patrolRange: 170, spriteKey: 'enemy-pig' },
       { type: 'jumper', name: '호박 요괴', x: 1450, y: groundY - 40, hp: 2, damage: 1, speed: 55, patrolRange: 150, spriteKey: 'enemy-pumpkin' },
-      { type: 'charger', name: '성난 황소', x: 1960, y: groundY - 46, hp: 3, damage: 1, speed: 82, patrolRange: 160, spriteKey: 'enemy-bull' }
+      { type: 'charger', name: '성난 황소', x: 1700, y: groundY - 6, hp: 3, damage: 1, speed: 82, patrolRange: 130, spriteKey: 'enemy-bull' }
     ],
     boss: { type: 'boss', name: '저팔계', x: 2480, y: groundY - 76, hp: 6, maxHp: 6, damage: 1, speed: 58, patrolRange: 170, spriteKey: 'boss-bajie', attackStyle: 'slam' },
     hazards: [], platforms: [{ x: 560, y: 355, width: 170 }, { x: 900, y: 315, width: 190 }, { x: 1250, y: 350, width: 170 }, { x: 1620, y: 315, width: 190 }, { x: 1950, y: 350, width: 160 }, { x: 2380, y: 318, width: 170 }, { x: 2620, y: 318, width: 170 }], gimmicks: [],
