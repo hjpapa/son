@@ -14,6 +14,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   protected jumpTimer = 0;
   private pauseTimer = 0;
   private dashTimer = 0;
+  private dashState: 'patrol' | 'windup' | 'dash' | 'recover' = 'patrol';
+  private dashStateMs = 0;
   private stunnedUntil = 0;
   // Plain rectangles: cheap to move every frame, unlike rebuilt Graphics.
   private healthBar?: { back: Phaser.GameObjects.Rectangle; fill: Phaser.GameObjects.Rectangle };
@@ -30,7 +32,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.spawnX = config.x;
     this.spawnY = config.y;
     this.direction = Phaser.Math.Between(0, 1) === 0 ? -1 : 1;
-    this.pauseTimer = Phaser.Math.Between(0, 1800);
+    this.pauseTimer = Phaser.Math.Between(0, 300);
     this.dashTimer = Phaser.Math.Between(0, 700);
     this.jumpTimer = Phaser.Math.Between(0, 900);
 
@@ -92,13 +94,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.updateFlyer(delta);
         break;
       case 'charger':
-        this.updateCharger(player);
+        this.updateCharger(player, delta);
         break;
       case 'jumper':
         this.updateJumper(player, delta);
         break;
       default:
-        this.updateWalker(player);
+        this.updateWalker(player, delta);
         break;
     }
   }
@@ -113,6 +115,11 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       body.setVelocityX((this.x >= fromX ? 1 : -1) * 230);
       if (body.blocked.down) body.setVelocityY(-170);
       this.stunnedUntil = this.scene.time.now + 280;
+      if (this.enemyType === 'charger') {
+        this.dashState = 'recover';
+        this.dashStateMs = 0;
+        this.dashTimer = 0;
+      }
     }
     this.scene.time.delayedCall(80, () => {
       if (this.active) {
@@ -179,61 +186,80 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
   }
 
-  protected updateWalker(player?: Player): void {
+  protected updateWalker(_player?: Player, delta = this.scene.game.loop.delta): void {
+    this.updatePatrol(delta, this.config.speed * 0.72);
+  }
+
+  private updatePatrol(delta: number, speed: number): void {
     const body = this.body as Phaser.Physics.Arcade.Body;
-    this.pauseTimer += this.scene.game.loop.delta;
-
-    if (player && Math.abs(player.x - this.x) < 330) {
-      this.direction = player.x < this.x ? -1 : 1;
-    }
-
-    if (this.pauseTimer > 2800) {
-      body.setVelocityX(0);
-      if (this.pauseTimer > 3400) {
-        this.direction *= -1;
-        this.pauseTimer = 0;
-      }
-      this.setFlipX(this.direction < 0);
-      return;
-    }
-
-    body.setVelocityX(this.config.speed * 0.72 * this.direction);
+    const previousDirection = this.direction;
     this.turnAtPatrolEdge(body);
+    // Walk to the edge before turning; a nearby hero must not flip patrol
+    // direction every frame or keep the monster pacing on the same spot.
+    if (this.direction !== previousDirection) this.pauseTimer = 220;
+    this.pauseTimer = Math.max(0, this.pauseTimer - delta);
+    body.setVelocityX(this.pauseTimer > 0 ? 0 : speed * this.direction);
   }
 
   protected updateFlyer(_delta: number): void {
     const body = this.body as Phaser.Physics.Arcade.Body;
     const weave = Math.sin(this.scene.time.now / 360 + this.spawnX * 0.01);
+    this.turnAtPatrolEdge(body);
     body.setVelocityX((this.config.speed * 0.72 + weave * 18) * this.direction);
     body.setVelocityY(Math.cos(this.scene.time.now / 300 + this.spawnX * 0.01) * 58);
     if (Math.abs(this.y - this.spawnY) > 92) {
       body.setVelocityY(this.y > this.spawnY ? -90 : 90);
     }
-    this.turnAtPatrolEdge(body);
   }
 
-  protected updateCharger(player: Player): void {
+  protected updateCharger(player: Player, delta: number): void {
     const body = this.body as Phaser.Physics.Arcade.Body;
     const distance = Math.abs(player.x - this.x);
-    this.dashTimer += this.scene.game.loop.delta;
-
-    if (distance < 430) {
-      this.direction = player.x < this.x ? -1 : 1;
+    this.dashStateMs += delta;
+    if (this.dashState === 'windup') {
+      body.setVelocityX(0);
+      if (this.dashStateMs >= 320) {
+        this.dashState = 'dash';
+        this.dashStateMs = 0;
+        this.clearTint();
+      }
+    } else if (this.dashState === 'dash') {
+      const atEdge = (this.x <= this.spawnX - this.config.patrolRange && this.direction < 0)
+        || (this.x >= this.spawnX + this.config.patrolRange && this.direction > 0)
+        || body.blocked.left || body.blocked.right;
+      if (this.dashStateMs >= 420 || atEdge) {
+        this.dashState = 'recover';
+        this.dashStateMs = 0;
+        body.setVelocityX(0);
+      } else {
+        body.setVelocityX(Math.max(170, this.config.speed * 2) * this.direction);
+      }
+    } else if (this.dashState === 'recover') {
+      body.setVelocityX(0);
+      if (this.dashStateMs >= 420) {
+        this.dashState = 'patrol';
+        this.dashStateMs = 0;
+      }
     } else {
-      this.turnAtPatrolEdge(body);
-    }
-
-    const isDashing = distance < 350 && this.dashTimer > 1250;
-    const speed = isDashing ? this.config.speed * 1.65 : this.config.speed * 0.62;
-    body.setVelocityX(speed * this.direction);
-    if (this.dashTimer > 2000) {
-      this.dashTimer = 0;
+      this.dashTimer += delta;
+      const playerInRange = distance < 350 && Math.abs(player.y - this.y) < 130
+        && player.x >= this.spawnX - this.config.patrolRange && player.x <= this.spawnX + this.config.patrolRange;
+      if (playerInRange && this.dashTimer >= 1250) {
+        this.direction = player.x < this.x ? -1 : 1;
+        this.dashState = 'windup';
+        this.dashStateMs = 0;
+        this.dashTimer = 0;
+        body.setVelocityX(0);
+        this.setTint(0xffaa6f);
+      } else {
+        this.updatePatrol(delta, this.config.speed * 0.72);
+      }
     }
     this.setFlipX(this.direction < 0);
   }
 
   protected updateJumper(player: Player, delta: number): void {
-    this.updateWalker(player);
+    this.updateWalker(player, delta);
     this.jumpTimer += delta;
     const body = this.body as Phaser.Physics.Arcade.Body;
     if (this.jumpTimer > 1900 && body.blocked.down) {
@@ -243,9 +269,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   }
 
   protected turnAtPatrolEdge(body = this.body as Phaser.Physics.Arcade.Body): void {
-    if (body.blocked.left || this.x <= this.spawnX - this.config.patrolRange) {
+    if (this.x <= this.spawnX - this.config.patrolRange || (this.direction < 0 && body.blocked.left)) {
       this.direction = 1;
-    } else if (body.blocked.right || this.x >= this.spawnX + this.config.patrolRange) {
+    } else if (this.x >= this.spawnX + this.config.patrolRange || (this.direction > 0 && body.blocked.right)) {
       this.direction = -1;
     }
     this.setFlipX(this.direction < 0);

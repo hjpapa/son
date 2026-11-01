@@ -38,6 +38,7 @@ export type BossData = EnemyData & {
   type: 'boss';
   maxHp: number;
   attackStyle: BossAttackStyle;
+  pursuit?: boolean;
 };
 
 export type StageGimmick = { type: GimmickType; label: string; value?: number };
@@ -146,7 +147,7 @@ const stageLayouts: Array<Omit<StageData, 'startDialogue' | 'clearDialogue'>> = 
       { type: 'flyer', name: '번개 새', x: 1480, y: 230, hp: 2, damage: 1, speed: 92, patrolRange: 220, spriteKey: 'enemy-thunderbird' },
       { type: 'charger', name: '천궁 창병', x: 2150, y: groundY - 42, hp: 3, damage: 1, speed: 88, patrolRange: 180, spriteKey: 'enemy-heaven-spear' }
     ],
-    boss: { type: 'boss', name: '이랑진군', x: 700, y: groundY - 74, hp: 8, maxHp: 8, damage: 1, speed: 78, patrolRange: 520, spriteKey: 'boss-erlang', attackStyle: 'lightning' },
+    boss: { type: 'boss', name: '이랑진군', x: 700, y: groundY - 74, hp: 8, maxHp: 8, damage: 1, speed: 78, patrolRange: 520, spriteKey: 'boss-erlang', attackStyle: 'lightning', pursuit: true },
     hazards: [{ type: 'lightning', x: 1180, y: 418, width: 130, label: '번개 구름' }, { type: 'lightning', x: 2360, y: 418, width: 150, label: '번개 구름' }],
     platforms: [{ x: 700, y: 312, width: 180 }, { x: 1180, y: 342, width: 170 }, { x: 1500, y: 345, width: 160 }, { x: 1800, y: 305, width: 170 }, { x: 2100, y: 345, width: 180 }, { x: 2360, y: 342, width: 190 }, { x: 2700, y: 318, width: 200 }], gimmicks: [{ type: 'surviveRun', label: '천궁 추격전', value: 20 }],
     nextStageId: 'stage-05'

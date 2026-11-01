@@ -29,19 +29,33 @@ const styleCalls: Record<BossAttackStyle, string> = {
 
 export class BossEnemy extends Enemy {
   private readonly attackStyle: BossAttackStyle;
+  private readonly roamRange: number;
+  private readonly roamSpeed: number;
+  private readonly pursuit: boolean;
+  private roamDirection: -1 | 1;
+  private roamPauseMs = 0;
   private chargeCooldown = 0;
   private specialCooldown = 0;
+  private chargeState: 'patrol' | 'windup' | 'dash' | 'recover' = 'patrol';
+  private chargeStateMs = 0;
+  private specialWindupMs = 0;
+  private specialPending = false;
   private defeatedCallback?: () => void;
   private playerDamagedCallback?: () => void;
 
   constructor(scene: Phaser.Scene, config: BossData) {
     super(scene, config);
     this.attackStyle = config.attackStyle;
+    this.roamRange = config.patrolRange;
+    this.roamSpeed = config.speed;
+    this.pursuit = config.pursuit ?? false;
+    this.roamDirection = this.direction;
     this.setDisplaySize(148, 148);
 
     const body = this.body as Phaser.Physics.Arcade.Body;
-    body.setSize(this.width * 0.56, this.height * 0.76);
-    body.setOffset(this.width * 0.22, this.height * 0.20);
+    // Keep the large artwork, but let the boss walk under low arena ledges.
+    body.setSize(this.width * 0.56, this.height * 0.58);
+    body.setOffset(this.width * 0.22, this.height * 0.42);
     body.setCollideWorldBounds(true);
   }
 
@@ -60,35 +74,105 @@ export class BossEnemy extends Enemy {
   override updateEnemy(player: Player, delta: number): void {
     if (!this.active) return;
 
-    this.chargeCooldown += delta;
-    this.specialCooldown += delta;
     const body = this.body as Phaser.Physics.Arcade.Body;
     const enraged = this.hpRatio <= 0.5;
-    // Slow enough for young players to read the warning call and react.
+    const distance = Math.abs(player.x - this.x);
+    const engaged = distance < 620 && Math.abs(player.y - this.y) < 230;
+    // Only start the attack clock once Wukong can see and respond to the boss.
     const specialDelay = enraged ? 3500 : 4700;
-
-    if (this.specialCooldown >= specialDelay) {
-      this.launchSpecialAttack(player);
+    if (engaged) {
+      if (this.specialPending) {
+        this.specialWindupMs += delta;
+        if (this.specialWindupMs >= 500) {
+          this.specialPending = false;
+          this.specialWindupMs = 0;
+          this.launchSpecialAttack(player);
+          this.chargeCooldown = 0;
+          body.setVelocityX(0);
+          return;
+        }
+      } else if (this.chargeState === 'patrol') {
+        this.specialCooldown += delta;
+        if (this.specialCooldown >= specialDelay) {
+          this.specialCooldown = 0;
+          this.specialPending = true;
+          this.specialWindupMs = 0;
+          this.showAttackCall(styleCalls[this.attackStyle]);
+        }
+      }
+    } else {
       this.specialCooldown = 0;
+      this.specialPending = false;
+      this.specialWindupMs = 0;
     }
 
-    const distance = Math.abs(player.x - this.x);
-    if (this.attackStyle === 'claw' && distance < 520 && this.chargeCooldown > 2000) {
-      this.direction = player.x < this.x ? -1 : 1;
-      body.setVelocityX(260 * this.direction);
-      this.chargeCooldown = 0;
-      this.setTint(0xffaa6f);
-      this.scene.time.delayedCall(360, () => this.active && this.clearTint());
+    if (this.specialPending) {
+      body.setVelocityX(0);
       return;
     }
 
-    if (this.chargeCooldown > (enraged ? 2400 : 3100)) {
-      this.direction = player.x < this.x ? -1 : 1;
-      body.setVelocityX((enraged ? 195 : 165) * this.direction);
-      this.chargeCooldown = 0;
+    this.chargeStateMs += delta;
+    if (this.chargeState === 'windup') {
+      body.setVelocityX(0);
+      if (this.chargeStateMs >= 430) {
+        this.chargeState = 'dash';
+        this.chargeStateMs = 0;
+        this.clearTint();
+      }
+    } else if (this.chargeState === 'dash') {
+      const atRoamEdge = !this.pursuit && (
+        (this.x <= this.spawnX - this.roamRange && this.direction < 0)
+        || (this.x >= this.spawnX + this.roamRange && this.direction > 0)
+      );
+      if (this.chargeStateMs >= 460 || body.blocked.left || body.blocked.right || atRoamEdge) {
+        this.chargeState = 'recover';
+        this.chargeStateMs = 0;
+        body.setVelocityX(0);
+      } else {
+        body.setVelocityX((this.attackStyle === 'claw' ? 260 : enraged ? 195 : 165) * this.direction);
+      }
+    } else if (this.chargeState === 'recover') {
+      body.setVelocityX(0);
+      if (this.chargeStateMs >= 420) {
+        this.chargeState = 'patrol';
+        this.chargeStateMs = 0;
+      }
     } else {
-      this.updateWalker();
+      this.chargeCooldown += delta;
+      const delay = this.attackStyle === 'claw' ? 2000 : enraged ? 2400 : 3100;
+      const playerInRoamRange = player.x >= this.spawnX - this.roamRange
+        && player.x <= this.spawnX + this.roamRange;
+      if (engaged && distance < 520 && (this.pursuit || playerInRoamRange) && this.chargeCooldown >= delay) {
+        this.direction = player.x < this.x ? -1 : 1;
+        this.setFlipX(this.direction < 0);
+        this.chargeState = 'windup';
+        this.chargeStateMs = 0;
+        this.chargeCooldown = 0;
+        body.setVelocityX(0);
+        this.setTint(0xffaa6f);
+      } else {
+        if (this.pursuit) this.updateWalker(undefined, delta);
+        else this.updateRoam(delta);
+      }
     }
+  }
+
+  private updateRoam(delta: number): void {
+    const body = this.body as Phaser.Physics.Arcade.Body;
+    const left = this.spawnX - this.roamRange;
+    const right = this.spawnX + this.roamRange;
+    if (this.roamDirection < 0 && (this.x <= left || body.blocked.left)) {
+      this.roamDirection = 1;
+      this.roamPauseMs = 300;
+    } else if (this.roamDirection > 0 && (this.x >= right || body.blocked.right)) {
+      this.roamDirection = -1;
+      this.roamPauseMs = 300;
+    }
+
+    this.direction = this.roamDirection;
+    this.setFlipX(this.direction < 0);
+    this.roamPauseMs = Math.max(0, this.roamPauseMs - delta);
+    body.setVelocityX(this.roamPauseMs > 0 ? 0 : this.roamSpeed * this.roamDirection);
   }
 
   override takeHit(amount = 1, fromX?: number): boolean {
@@ -101,7 +185,6 @@ export class BossEnemy extends Enemy {
   private launchSpecialAttack(player: Player): void {
     this.direction = player.x < this.x ? -1 : 1;
     this.setFlipX(this.direction < 0);
-    this.showAttackCall(styleCalls[this.attackStyle]);
 
     switch (this.attackStyle) {
       case 'lightning':
